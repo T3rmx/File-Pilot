@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>File Explorer</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background-color: #f1f3f4;
+      margin: 0;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: auto;
+      background-color: #fff;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    }
+
+    h2 {
+      text-align: center;
+      color: #202124;
+      margin-bottom: 20px;
+    }
+
+    form {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    input[type="text"] {
+      padding: 8px 12px;
+      width: 60%;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+
+    button {
+      padding: 8px 16px;
+      background-color: #1a73e8;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      margin-left: 10px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background-color: #0f5cc0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+
+    th, td {
+      padding: 12px 10px;
+      text-align: left;
+      border-bottom: 1px solid #ddd;
+    }
+
+    a {
+      text-decoration: none;
+      color: #1a73e8;
+    }
+
+    .download-btn {
+      padding: 6px 12px;
+      background-color: #34a853;
+      color: white;
+      border-radius: 5px;
+      font-size: 13px;
+    }
+
+    .download-btn:hover {
+      background-color: #2c8e47;
+    }
+
+    .back-link {
+      display: inline-block;
+      margin-bottom: 10px;
+      color: #5f6368;
+      font-size: 14px;
+    }
+
+    .back-link:hover {
+      text-decoration: underline;
+    }
+
+    .folder-name {
+      font-weight: bold;
+    }
+
+    .logo {
+      display: block;
+      margin: 0 auto;
+      width: 150px;
+      height: auto;
+    }
+
+    .breadcrumb {
+      margin-bottom: 15px;
+      font-size: 14px;
+      color: #5f6368;
+    }
+
+    .breadcrumb a {
+      text-decoration: none;
+      color: #1a73e8;
+    }
+
+    .breadcrumb span {
+      margin: 0 5px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>{{ 'مستعرض الملفات 📁' if lang == 'ar' else '📁 File Explorer' }}</h2>
+
+    <form method="get">
+      <input type="text" name="search" value="{{ request.args.get('search', '') }}" placeholder="{{ 'بحث...' if lang == 'ar' else 'Search...'}}" />
+      <button type="submit">{{ 'بحث' if lang == 'ar' else 'Search' }}</button>
+    </form>
+
+    {% if current %}
+      {% set parent = '/'.join(current.split('/')[:-1]) %}
+      <div class="breadcrumb">
+        <a href="{{ url_for('browse') }}">{{ 'الرئيسية' if lang == 'ar' else 'Home' }}</a>
+        {% for folder in current.split('/') %}
+          {% if folder %}
+            <span>&gt;</span> <a href="{{ url_for('browse', subpath='/'.join(current.split('/')[:current.split('/').index(folder)+1])) }}">{{ folder }}</a>
+          {% endif %}
+        {% endfor %}
+      </div>
+      <a class="back-link" href="{{ url_for('browse', subpath=parent) }}">← {{ 'رجوع' if lang == 'ar' else 'Back' }}</a>
+    {% endif %}
+
+    <table>
+      <thead>
+        <tr>
+          <th>{{ 'الاسم' if lang == 'ar' else 'Name' }}</th>
+          <th>{{ 'الإجراءات' if lang == 'ar' else 'Actions' }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in contents %}
+        <tr>
+          <td>
+            {% if item.is_dir %}
+              <span class="folder-name">📁 <a href="{{ url_for('browse', subpath=(current + '/' + item.name) if current else item.name) }}">{{ item.name }}/</a></span>
+            {% else %}
+              📄 {{ item.name }}
+            {% endif %}
+          </td>
+          <td>
+            {% if item.is_dir %}
+              <a href="{{ item.zip_url }}" class="download-btn">{{ 'تحميل ZIP' if lang == 'ar' else 'Download ZIP' }}</a>
+            {% else %}
+              <a href="{{ url_for('view_file', subpath=(current + '/' + item.name) if current else item.name) }}" class="download-btn">{{ 'عرض' if lang == 'ar' else 'View' }}</a>
+              <a href="{{ item.download_url }}" class="download-btn">{{ 'تحميل' if lang == 'ar' else 'Download' }}</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</body>
+</html>
