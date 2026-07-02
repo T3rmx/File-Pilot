@@ -119,6 +119,23 @@
     .breadcrumb span {
       margin: 0 5px;
     }
+
+    .empty-msg {
+      text-align: center;
+      color: #888;
+      padding: 40px 0;
+      font-size: 16px;
+    }
+
+    .logout-link {
+      float: right;
+      font-size: 13px;
+      color: #d32f2f;
+    }
+
+    .logout-link:hover {
+      text-decoration: underline;
+    }
   </style>
 </head>
 <body>
@@ -130,19 +147,22 @@
       <button type="submit">{{ 'بحث' if lang == 'ar' else 'Search' }}</button>
     </form>
 
+    {% set parts = current.split('/') if current else [] %}
     {% if current %}
-      {% set parent = '/'.join(current.split('/')[:-1]) %}
       <div class="breadcrumb">
-        <a href="{{ url_for('browse') }}">{{ 'الرئيسية' if lang == 'ar' else 'Home' }}</a>
-        {% for folder in current.split('/') %}
-          {% if folder %}
-            <span>&gt;</span> <a href="{{ url_for('browse', subpath='/'.join(current.split('/')[:current.split('/').index(folder)+1])) }}">{{ folder }}</a>
+        <a href="{{ url_for('browse') }}{% if search %}?search={{ search }}{% endif %}">{{ 'الرئيسية' if lang == 'ar' else 'Home' }}</a>
+        {% for part in parts %}
+          {% if part %}
+            <span>&gt;</span>
+            <a href="{{ url_for('browse', subpath='/'.join(parts[:loop.index])) }}{% if search %}?search={{ search }}{% endif %}">{{ part }}</a>
           {% endif %}
         {% endfor %}
       </div>
-      <a class="back-link" href="{{ url_for('browse', subpath=parent) }}">← {{ 'رجوع' if lang == 'ar' else 'Back' }}</a>
+      <a class="back-link" href="{{ url_for('browse', subpath='/'.join(parts[:-1])) }}{% if search %}?search={{ search }}{% endif %}">← {{ 'رجوع' if lang == 'ar' else 'Back' }}</a>
+      <a class="logout-link" href="{{ url_for('logout') }}">{{ 'تسجيل الخروج' if lang == 'ar' else 'Logout' }}</a>
     {% endif %}
 
+    {% if contents %}
     <table>
       <thead>
         <tr>
@@ -155,10 +175,11 @@
         <tr>
           <td>
             {% if item.is_dir %}
-              <span class="folder-name">📁 <a href="{{ url_for('browse', subpath=(current + '/' + item.name) if current else item.name) }}">{{ item.name }}/</a></span>
+              <span class="folder-name">{{ item.icon }} <a href="{{ url_for('browse', subpath=(current + '/' + item.name) if current else item.name) }}{% if search %}?search={{ search }}{% endif %}">{{ item.name }}/</a></span>
             {% else %}
-              📄 {{ item.name }}
+              {{ item.icon }} {{ item.name }}
             {% endif %}
+            <br><small style="color:#888;font-size:12px">{{ item.modified }}{% if item.size is not none %} — {{ item.size }} bytes{% endif %}</small>
           </td>
           <td>
             {% if item.is_dir %}
@@ -172,6 +193,9 @@
         {% endfor %}
       </tbody>
     </table>
+    {% else %}
+      <p class="empty-msg">{{ 'هذا الدليل فارغ' if lang == 'ar' else 'This directory is empty' }}</p>
+    {% endif %}
   </div>
 </body>
 </html>
