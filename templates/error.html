@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Error {{ code }}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f7f6;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        .container {
+            background-color: #fff;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            max-width: 400px;
+        }
+        h1 {
+            color: #d32f2f;
+            font-size: 48px;
+            margin: 0;
+        }
+        p {
+            color: #555;
+            font-size: 16px;
+        }
+        a {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 10px 20px;
+            background-color: #1a73e8;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+        }
+        a:hover {
+            background-color: #0f5cc0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>{{ code }}</h1>
+        {% if code == 404 %}
+            <p>{{ 'الصفحة غير موجودة' if lang == 'ar' else 'Page not found' }}</p>
+        {% elif code == 403 %}
+            <p>{{ 'تم رفض الوصول' if lang == 'ar' else 'Access denied' }}</p>
+        {% elif code == 400 %}
+            <p>{{ 'طلب غير صالح' if lang == 'ar' else 'Bad request' }}</p>
+        {% else %}
+            <p>{{ 'حدث خطأ' if lang == 'ar' else 'An error occurred' }}</p>
+        {% endif %}
+        <a href="{{ url_for('browse') }}">{{ 'العودة للرئيسية' if lang == 'ar' else 'Back to Home' }}</a>
+    </div>
+</body>
+</html>

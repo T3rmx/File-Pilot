@@ -1,48 +1,51 @@
-# 🚀 FilePilot
+# FilePilot
 
-**FilePilot** is a secure and user-friendly file browser built with Python and Flask. It allows users to browse server file contents directly from a web interface.
+Secure and user-friendly file browser built with Python and Flask.
 
-## ✨ Features
+## Features
 
-- ✅ List directories and view file contents
-- 📁 Display file size and last modified date
-- 🖼️ Inline preview of images and PDFs
-- 🔐 Password-protected access
-- 🌐 Multi-language support (English / Arabic)
-- 📎 File-type icons for easier identification
-- 🔙 "Back to Home" navigation button
+- List directories and browse files
+- Display file size and last modified date
+- Inline preview of images and PDFs
+- Password-protected access (via `FILEPILOT_PASSWORD` env var)
+- Multi-language support (English / Arabic)
+- File-type icons for easier identification
+- Breadcrumb navigation with search persistence
+- Directory ZIP download
 
-## ⚙️ Requirements
+## Requirements
 
 - Python 3.8+
 - Flask
-- Jinja2
-- Babel
 
-## 🧪 Installation & Usage
+## Installation & Usage
 
 ```bash
 git clone git@github.com:T3rmx/File-Pilot.git
 cd File-Pilot
 pip install -r requirements.txt
+
+# Optional: password-protect the server
+export FILEPILOT_PASSWORD="your-password"
+
+# Optional: set a custom secret key (auto-generated if omitted)
+export FILEPILOT_SECRET="your-secret-key"
+
 python app.py
 ```
-## Then open your browser at: 
-```url
-http://localhost:8000
-or
-http://YOUR_IP:8000
-```
-## 🌍 Language Selection
-On first launch, the user will be prompted to choose a language:
 
-- English 
-- Arabic
+Open `http://localhost:8000` in your browser.
 
-## 📌 TODO (Planned Features)
+## Configuration
+
+| Environment Variable | Description |
+|---|---|
+| `FILEPILOT_PASSWORD` | Set to enable password-protected access |
+| `FILEPILOT_SECRET` | Flask session secret key (auto-generated if not set) |
+
+## TODO
 
 - File upload support
 - File operations (copy/delete)
 - UI enhancement using React or Bootstrap
 - OAuth2 or Telegram login integration
-
