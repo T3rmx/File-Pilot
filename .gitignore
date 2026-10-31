@@ -1,2 +1,10 @@
-/__pycache__
-/shared/**
+__pycache__/
+*.py[cod]
+.venv/
+data/
+web/node_modules/
+web/dist/
+*.log
+*.db
+shared/**
+*.tsbuildinfo
