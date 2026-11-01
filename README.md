@@ -4,7 +4,7 @@ Secure, local-first file sharing for your LAN — files stay on the host device,
 
 - **Port:** `6969` for everything: web UI, REST API, WebSocket, share links, QR targets, TLS.
 - **Stack:** FastAPI + SQLAlchemy (SQLite WAL) backend, React 19 + TypeScript + Vite frontend.
-- **Security:** AES-256-GCM at rest, Argon2id password hashing, per-share passwords, download limits, expiry + instant revoke, rate limiting, audit log, security headers, attachment-only downloads, safe inline preview allowlist, path-traversal + symlink containment, filename sanitisation, CSRF protection, same-origin enforcement.
+- **Security:** AES-256-GCM share tokens, Argon2id password hashing, per-share passwords, download/upload limits, expiry + instant revoke, rate limiting, audit log, security headers, attachment-only downloads, safe inline preview allowlist, path-traversal + symlink containment, filename sanitisation, CSRF protection, same-origin enforcement.
 - **Desktop:** Tauri v2 shell (Phase 7 will spawn the local server as a sidecar).
 
 ## Quick start (development)
@@ -42,10 +42,22 @@ First run shows the setup wizard: create the admin account, then upload files.
 - Private upload + browse + download file manager (grid/list, search, breadcrumbs, drag & drop, upload progress dock).
 - Unique share links for a file, a folder, or a multi-file selection; QR code per link; copy link; instant revoke; password, expiry, download limit; ZIP for folders/multi-file shares.
 - Public share page at `/s/<token>` with password unlock, preview, downloads, and `.zip` bundle.
+- **Upload links (dropzone):** a "Receive files" panel below the files list creates a link anyone can use to send files into your storage — no account needed. Optional password, expiry and upload limit; received files land in your home folder, never overwrite existing names, and respect the server upload size/quota settings. Revoke any upload link from Share links.
 - Dashboard with usage stats, storage meter, activity feed, quick actions.
 - Transfer log for uploads and downloads.
 - Admin settings: server name, max upload size, uploads toggle, LAN discovery; audit log; password change.
 - Theming (light/dark), language (English / Arabic with full RTL support).
+
+## Upload links
+
+Give someone a URL to send you files — they don't need an account or the app.
+
+1. Open **Files** and scroll below the list to the **Receive files** panel.
+2. Choose **Create upload link**, then optionally set a title, password, expiry and upload limit.
+3. Copy the link or open its QR code, and send it to anyone.
+4. They open `/s/<token>`, drop files into the page, and each file is uploaded straight to your home folder.
+
+Received files appear in **Files** immediately (live WebSocket refresh), are logged in **Transfers** and the audit log, and never overwrite an existing name. Upload links can only receive files — they cannot list, preview, download or zip anything. Revoke a link at any time from **Share links**.
 
 ## Tests
 
