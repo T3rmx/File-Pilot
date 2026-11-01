@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from pathlib import Path
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 
@@ -32,6 +32,28 @@ def make_engine(db_path: Path):
 
 def make_session_factory(engine) -> sessionmaker[Session]:
     return sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, future=True)
+
+
+# Additive migrations for databases created by older releases.
+_SCHEMA_ADDITIONS: dict[str, dict[str, str]] = {
+    "shares": {
+        "max_uploads": "INTEGER",
+        "upload_count": "INTEGER NOT NULL DEFAULT 0",
+    },
+}
+
+
+def ensure_schema(engine) -> None:
+    """Create missing columns/indexes on an existing SQLite database."""
+    with engine.begin() as conn:
+        inspector = inspect(conn)
+        for table, columns in _SCHEMA_ADDITIONS.items():
+            if not inspector.has_table(table):
+                continue
+            existing = {column["name"] for column in inspector.get_columns(table)}
+            for name, ddl in columns.items():
+                if name not in existing:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
 
 
 def session_scope(factory: sessionmaker[Session]) -> Iterator[Session]:

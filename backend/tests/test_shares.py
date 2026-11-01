@@ -159,3 +159,94 @@ def test_share_of_other_users_file_is_404(client, headers, db):
     other = {"Authorization": f"Bearer {login['access_token']}"}
     response = client.post("/api/shares", headers=other, json={"file_ids": [file["id"]]})
     assert response.status_code == 404
+
+
+def make_upload_share(client, headers, **overrides):
+    response = client.post("/api/shares/upload", headers=headers, json=overrides)
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_upload_link_receives_file(client, headers):
+    share = make_upload_share(client, headers, label="Inbox")
+    assert share["kind"] == "upload"
+    assert share["uploads_left"] is None
+    token = share["url"].rsplit("/", 1)[-1]
+
+    info = client.get(f"/api/public/{token}").json()
+    assert info["kind"] == "upload"
+    assert info["items"] == []
+    assert info["label"] == "Inbox"
+
+    sent = client.post(
+        f"/api/public/{token}/upload",
+        files={"file": ("dropped.txt", b"from a guest", "text/plain")},
+    )
+    assert sent.status_code == 200, sent.text
+    assert sent.json()["name"] == "dropped.txt"
+
+    listing = client.get("/api/files", headers=headers).json()
+    names = [item["name"] for item in listing["items"]]
+    assert "dropped.txt" in names
+
+    shares = client.get("/api/shares", headers=headers).json()["items"]
+    row = next(item for item in shares if item["id"] == share["id"])
+    assert row["upload_count"] == 1
+
+
+def test_upload_link_never_overwrites(client, headers):
+    upload(client, headers, "report.txt", b"original")
+    share = make_upload_share(client, headers)
+    token = share["url"].rsplit("/", 1)[-1]
+
+    sent = client.post(
+        f"/api/public/{token}/upload",
+        files={"file": ("report.txt", b"replacement", "text/plain")},
+    )
+    assert sent.status_code == 200
+    assert sent.json()["name"] == "report (2).txt"
+
+    listing = client.get("/api/files", headers=headers).json()
+    names = sorted(item["name"] for item in listing["items"])
+    assert names == ["report (2).txt", "report.txt"]
+
+
+def test_upload_link_password_and_limit(client, headers):
+    share = make_upload_share(client, headers, password="open sesame", max_uploads=1)
+    token = share["url"].rsplit("/", 1)[-1]
+
+    locked = client.get(f"/api/public/{token}").json()
+    assert locked["password_required"] is True
+    assert locked["uploads_left"] == 1
+
+    denied = client.post(
+        f"/api/public/{token}/upload", files={"file": ("a.txt", b"a", "text/plain")}
+    )
+    assert denied.status_code == 401
+
+    assert client.post(f"/api/public/{token}/unlock", json={"password": "open sesame"}).status_code == 200
+
+    first = client.post(
+        f"/api/public/{token}/upload", files={"file": ("a.txt", b"a", "text/plain")}
+    )
+    assert first.status_code == 200
+
+    second = client.post(
+        f"/api/public/{token}/upload", files={"file": ("b.txt", b"b", "text/plain")}
+    )
+    assert second.status_code == 410
+
+
+def test_upload_link_cannot_read_files(client, headers):
+    share = make_upload_share(client, headers)
+    token = share["url"].rsplit("/", 1)[-1]
+    assert client.get(f"/api/public/{token}/zip").status_code == 404
+
+
+def test_regular_share_rejects_uploads(client, headers):
+    _, share = make_share(client, headers)
+    token = share["url"].rsplit("/", 1)[-1]
+    response = client.post(
+        f"/api/public/{token}/upload", files={"file": ("x.txt", b"x", "text/plain")}
+    )
+    assert response.status_code == 404

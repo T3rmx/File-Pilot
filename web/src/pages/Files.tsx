@@ -3,16 +3,17 @@ import type { ChangeEvent, FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { ApiError, api } from "../lib/api";
-import type { FileEntry, FileList } from "../lib/api";
+import type { FileEntry, FileList, Share } from "../lib/api";
 import { fileExtension, formatBytes, formatDay } from "../lib/format";
 import { useI18n } from "../lib/i18n";
-import { cx, EmptyState, Field, Modal, Segmented, useUI } from "../lib/ui";
+import { copyText, cx, EmptyState, Field, Modal, Segmented, useUI } from "../lib/ui";
 import { FileGlyph } from "../components/FileIcon";
 import { Icon } from "../components/Icons";
 import { PreviewDialog } from "../components/PreviewDialog";
 import type { PreviewTarget } from "../components/PreviewDialog";
 import { ShareDialog } from "../components/ShareDialog";
 import type { ShareTarget } from "../components/ShareDialog";
+import { UploadLinkDialog } from "../components/UploadLinkDialog";
 
 type ViewMode = "list" | "grid";
 
@@ -51,8 +52,37 @@ export function FilesPage() {
   const [shareTarget, setShareTarget] = useState<ShareTarget | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [preview, setPreview] = useState<PreviewTarget | null>(null);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadLinks, setUploadLinks] = useState<Share[]>([]);
 
   const fileInput = useRef<HTMLInputElement>(null);
+
+  const loadUploadLinks = useCallback(async () => {
+    try {
+      const result = await api.get<{ items: Share[] }>("/api/shares");
+      setUploadLinks(
+        result.items.filter((share) => share.kind === "upload" && share.status === "active"),
+      );
+    } catch {
+      /* the panel is optional; keep the page usable */
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadUploadLinks();
+    const refresh = () => void loadUploadLinks();
+    window.addEventListener("fp:shares-changed", refresh);
+    window.addEventListener("fp:files-changed", refresh);
+    return () => {
+      window.removeEventListener("fp:shares-changed", refresh);
+      window.removeEventListener("fp:files-changed", refresh);
+    };
+  }, [loadUploadLinks]);
+
+  const copyUploadLink = async (share: Share) => {
+    const ok = await copyText(share.url);
+    toast(ok ? t("toast.copied") : t("toast.copyFailed"), ok ? "success" : "error");
+  };
 
   useEffect(() => {
     setSearchInput(query);
@@ -694,6 +724,68 @@ export function FilesPage() {
         </p>
       )}
 
+      <section className="panel upload-panel" aria-labelledby="upload-panel-title">
+        <div className="upload-panel-head">
+          <span className="upload-panel-icon" aria-hidden="true">
+            <Icon name="inbox" size={20} />
+          </span>
+          <div className="upload-panel-copy">
+            <h2 id="upload-panel-title">{t("upload.panelTitle")}</h2>
+            <p>{t("upload.panelBody")}</p>
+          </div>
+          <button type="button" className="btn btn-primary" onClick={() => setUploadOpen(true)}>
+            <Icon name="plus" size={16} />
+            <span>{t("upload.create")}</span>
+          </button>
+        </div>
+
+        {uploadLinks.length > 0 && (
+          <ul className="upload-list">
+            {uploadLinks.map((share) => (
+              <li key={share.id} className="upload-list-item">
+                <div className="upload-list-main">
+                  <strong>{share.label}</strong>
+                  <span className="upload-list-meta">
+                    {share.uploads_left === null
+                      ? t("upload.unlimited")
+                      : t("upload.uploadsLeft", { n: share.uploads_left })}
+                  </span>
+                </div>
+                <code className="upload-list-url" title={share.url}>
+                  {share.url}
+                </code>
+                <div className="upload-list-actions">
+                  <button
+                    type="button"
+                    className="icon-btn icon-btn-sm"
+                    title={t("shares.copyLink")}
+                    aria-label={t("shares.copyLink")}
+                    onClick={() => void copyUploadLink(share)}
+                  >
+                    <Icon name="copy" size={15} />
+                  </button>
+                  <a
+                    className="icon-btn icon-btn-sm"
+                    href={share.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={t("shares.open")}
+                    aria-label={t("shares.open")}
+                  >
+                    <Icon name="external" size={15} />
+                  </a>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <p className="upload-panel-foot">
+          <Icon name="shield" size={15} />
+          <span>{t("upload.panelHint")}</span>
+        </p>
+      </section>
+
       {dragging && (
         <div className="drop-overlay" role="presentation">
           <div className="drop-card">
@@ -806,6 +898,11 @@ export function FilesPage() {
       </Modal>
 
       <ShareDialog open={shareOpen} target={shareTarget} onClose={() => setShareOpen(false)} />
+      <UploadLinkDialog
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        onCreated={(share) => setUploadLinks((current) => [share, ...current])}
+      />
       <PreviewDialog target={preview} onClose={() => setPreview(null)} />
     </div>
   );

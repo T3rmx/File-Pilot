@@ -12,7 +12,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import __version__
 from .config import Settings, load_or_create_secret
-from .db import Base, make_engine, make_session_factory
+from .db import Base, ensure_schema, make_engine, make_session_factory
 from .deps import admin_user
 from .models import User
 from .routers import auth, files, public, shares, system
@@ -74,6 +74,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     engine = make_engine(settings.db_path)
     Base.metadata.create_all(engine)
+    ensure_schema(engine)
     session_factory = make_session_factory(engine)
 
     @asynccontextmanager
@@ -126,6 +127,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 pass
         engine = make_engine(settings.db_path)
         Base.metadata.create_all(engine)
+        ensure_schema(engine)
         request.app.state.engine = engine
         request.app.state.session_factory = make_session_factory(engine)
         return {"ok": True, "reset": True}
