@@ -74,6 +74,14 @@ class ShareIn(BaseModel):
     auto_delete: bool = False
 
 
+class UploadShareIn(BaseModel):
+    label: str = Field(default="", max_length=160)
+    password: str | None = Field(default=None, max_length=256)
+    expires_in_minutes: int | None = Field(default=None, ge=1, le=60 * 24 * 365)
+    max_uploads: int | None = Field(default=None, ge=1, le=100_000)
+    auto_delete: bool = False
+
+
 class ShareOut(BaseModel):
     id: str
     kind: str
@@ -84,6 +92,9 @@ class ShareOut(BaseModel):
     max_downloads: int | None
     download_count: int
     downloads_left: int | None
+    max_uploads: int | None
+    upload_count: int
+    uploads_left: int | None
     password_protected: bool
     url: str
     qr_svg: str
@@ -141,6 +152,7 @@ class PublicShareOut(BaseModel):
     unlocked: bool
     expires_at: datetime | None
     downloads_left: int | None
+    uploads_left: int | None = None
     items: list[PublicFileOut]
     total_size: int
     zip_available: bool

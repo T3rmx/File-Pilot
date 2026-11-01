@@ -8,20 +8,9 @@ export default defineConfig({
     proxy: {
       "/api": {
         target: "https://127.0.0.1:6969",
-        changeOrigin: true,
+        // Keep the browser's Host header so same-origin (CSRF) checks pass.
+        changeOrigin: false,
         secure: false,
-        configure: (proxy) => {
-          proxy.on("proxyReq", (proxyReq, req) => {
-            // Forward cookies from browser request to backend
-            const cookie = req.headers.cookie;
-            if (cookie) proxyReq.setHeader("cookie", cookie);
-          });
-          proxy.on("proxyRes", (proxyRes, _req, res) => {
-            // Forward Set-Cookie headers from backend to browser
-            const setCookie = proxyRes.headers["set-cookie"];
-            if (setCookie) res.setHeader("set-cookie", setCookie);
-          });
-        },
       },
       "/ws": { target: "wss://127.0.0.1:6969", ws: true, secure: false },
       "/ca.crt": { target: "https://127.0.0.1:6969", secure: false },

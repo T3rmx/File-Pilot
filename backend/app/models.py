@@ -100,7 +100,7 @@ class Share(Base):
     owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     token_enc: Mapped[str] = mapped_column(Text, default="")
-    kind: Mapped[str] = mapped_column(String(16), default="file")  # file | folder | collection
+    kind: Mapped[str] = mapped_column(String(16), default="file")  # file | folder | collection | upload
     target_id: Mapped[str | None] = mapped_column(ForeignKey("files.id"), nullable=True)
     label: Mapped[str] = mapped_column(String(160), default="")
     password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -110,6 +110,8 @@ class Share(Base):
     download_count: Mapped[int] = mapped_column(Integer, default=0)
     max_views: Mapped[int | None] = mapped_column(Integer, nullable=True)
     view_count: Mapped[int] = mapped_column(Integer, default=0)
+    max_uploads: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    upload_count: Mapped[int] = mapped_column(Integer, default=0)
     auto_delete: Mapped[bool] = mapped_column(Boolean, default=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

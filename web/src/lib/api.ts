@@ -37,7 +37,7 @@ export interface FileList {
 
 export interface Share {
   id: string;
-  kind: "file" | "folder" | "collection" | string;
+  kind: "file" | "folder" | "collection" | "upload" | string;
   label: string;
   status: "active" | "expired" | "revoked" | "exhausted" | string;
   created_at: string;
@@ -45,6 +45,9 @@ export interface Share {
   max_downloads: number | null;
   download_count: number;
   downloads_left: number | null;
+  max_uploads: number | null;
+  upload_count: number;
+  uploads_left: number | null;
   password_protected: boolean;
   url: string;
   qr_svg: string;
@@ -101,6 +104,7 @@ export interface PublicShare {
   unlocked: boolean;
   expires_at: string | null;
   downloads_left: number | null;
+  uploads_left: number | null;
   items: PublicFile[];
   total_size: number;
   zip_available: boolean;
@@ -237,8 +241,8 @@ export const api = {
   del: <T = null>(path: string) => request<T>(path, { method: "DELETE" }),
 };
 
-export interface UploadHandle {
-  promise: Promise<FileEntry>;
+export interface UploadHandle<T = FileEntry> {
+  promise: Promise<T>;
   abort: () => void;
 }
 
@@ -291,6 +295,65 @@ export function uploadFile(
 
   return {
     promise: run(true),
+    abort: () => {
+      cancelled = true;
+      current?.abort();
+    },
+  };
+}
+
+export interface PublicUploadResult {
+  ok: boolean;
+  file_id: string;
+  name: string;
+  size: number;
+}
+
+/** Upload a single file through a public upload link (no account needed). */
+export function uploadToShare(
+  token: string,
+  file: File,
+  onProgress: (loaded: number, total: number) => void,
+): UploadHandle<PublicUploadResult> {
+  let current: XMLHttpRequest | null = null;
+  let cancelled = false;
+
+  const promise = new Promise<PublicUploadResult>((resolve, reject) => {
+    if (cancelled) {
+      reject(new ApiError(0, "Upload cancelled"));
+      return;
+    }
+    const xhr = new XMLHttpRequest();
+    current = xhr;
+    xhr.open("POST", `/api/public/${encodeURIComponent(token)}/upload`);
+    xhr.responseType = "text";
+    xhr.withCredentials = true;
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(event.loaded, event.total || file.size);
+    };
+    xhr.onload = () => {
+      const data = safeParse(xhr.responseText);
+      if (xhr.status >= 200 && xhr.status < 300) {
+        onProgress(file.size, file.size);
+        resolve(data as PublicUploadResult);
+        return;
+      }
+      if (xhr.status === 401) {
+        reject(new ApiError(401, "This link needs a password"));
+        return;
+      }
+      reject(new ApiError(xhr.status, detailOf(data, xhr.statusText || "Upload failed")));
+    };
+    xhr.onerror = () => reject(new ApiError(0, "Network error while uploading"));
+    xhr.onabort = () => reject(new ApiError(0, "Upload cancelled"));
+
+    const form = new FormData();
+    form.append("file", file, file.name);
+    xhr.send(form);
+  });
+
+  return {
+    promise,
     abort: () => {
       cancelled = true;
       current?.abort();

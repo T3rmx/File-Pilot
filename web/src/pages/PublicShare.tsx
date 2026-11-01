@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
-import { ApiError, api } from "../lib/api";
+import { ApiError, api, uploadToShare } from "../lib/api";
 import type { PublicShare } from "../lib/api";
 import { formatBytes, formatDate } from "../lib/format";
 import { useI18n } from "../lib/i18n";
@@ -30,6 +30,204 @@ function errorKindOf(error: ApiError): ErrorKind {
   if (detail.includes("limit")) return "exhausted";
   return "unavailable";
 }
+
+type UploadStatus = "uploading" | "done" | "error";
+
+interface UploadItem {
+  id: string;
+  name: string;
+  size: number;
+  progress: number;
+  status: UploadStatus;
+  error?: string;
+}
+
+function UploadZone({
+  token,
+  share,
+  onUploaded,
+}: {
+  token: string;
+  share: PublicShare;
+  onUploaded: () => void;
+}) {
+  const { t, lang } = useI18n();
+  const input = useRef<HTMLInputElement>(null);
+  const [queue, setQueue] = useState<UploadItem[]>([]);
+  const [dragging, setDragging] = useState(false);
+  const [sent, setSent] = useState(0);
+
+  const update = (id: string, patch: Partial<UploadItem>) =>
+    setQueue((current) =>
+      current.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+    );
+
+  const uploadFiles = async (files: File[]) => {
+    for (const [index, file] of files.entries()) {
+      const id = `${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`;
+      setQueue((current) => [
+        ...current,
+        { id, name: file.name, size: file.size, progress: 0, status: "uploading" },
+      ]);
+      try {
+        await uploadToShare(token, file, (loaded, total) => {
+          update(id, { progress: total > 0 ? Math.min(loaded / total, 1) : 0 });
+        }).promise;
+        update(id, { progress: 1, status: "done" });
+        setSent((current) => current + 1);
+        onUploaded();
+      } catch (err) {
+        update(id, {
+          status: "error",
+          error: err instanceof ApiError ? err.detail : t("common.unknownError"),
+        });
+      }
+    }
+  };
+
+  const pick = (list: FileList | null) => {
+    if (!list || list.length === 0) return;
+    void uploadFiles(Array.from(list));
+  };
+
+  const maybeLeft = share.uploads_left;
+  const full = maybeLeft === 0;
+
+  return (
+    <section className="public-card upload-card">
+      <div className="public-head">
+        <div className="public-title">
+          <span className="upload-card-icon">
+            <Icon name="inbox" size={24} />
+          </span>
+          <div>
+            <h1>{t("public.uploadTitle", { name: share.owner })}</h1>
+            <p>{t("public.sharedBy", { name: share.owner })}</p>
+          </div>
+        </div>
+        <span className={cx("chip", `chip-${share.status}`)}>{t("shares.active")}</span>
+      </div>
+
+      <div className="public-meta">
+        {maybeLeft !== null ? (
+          <span>
+            <Icon name="upload" size={14} />
+            {t("public.uploadsLeft", { n: maybeLeft })}
+          </span>
+        ) : (
+          <span>
+            <Icon name="upload" size={14} />
+            {t("public.uploadUnlimited")}
+          </span>
+        )}
+        {share.expires_at && (
+          <span>
+            <Icon name="clock" size={14} />
+            {t("public.expires", { when: formatDate(share.expires_at, lang) })}
+          </span>
+        )}
+      </div>
+
+      <input
+        ref={input}
+        type="file"
+        multiple
+        hidden
+        onChange={(event) => {
+          pick(event.target.files);
+          event.target.value = "";
+        }}
+      />
+
+      {full ? (
+        <div className="upload-full">
+          <Icon name="alert" size={20} />
+          <div>
+            <strong>{t("public.exhausted")}</strong>
+            <span>{t("public.exhaustedHint")}</span>
+          </div>
+        </div>
+      ) : (
+        <div
+        className={cx("upload-drop", dragging && "is-dragging")}
+        role="button"
+        tabIndex={0}
+        onClick={() => input.current?.click()}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            input.current?.click();
+          }
+        }}
+        onDragOver={(event) => {
+          event.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(event) => {
+          event.preventDefault();
+          setDragging(false);
+          pick(event.dataTransfer.files);
+        }}
+      >
+        <span className="upload-drop-icon">
+          <Icon name="upload" size={30} />
+        </span>
+        <strong>{dragging ? t("public.uploadDrop") : t("public.uploadChoose")}</strong>
+        <span>{t("public.uploadHint")}</span>
+        <span className="upload-drop-foot">{t("public.uploadNoLimit")}</span>
+      </div>
+      )}
+
+      {queue.length > 0 && (
+        <ul className="upload-queue">
+          {queue.map((item) => (
+            <li key={item.id} className={cx("upload-queue-item", `is-${item.status}`)}>
+              <FileGlyph name={item.name} size={18} />
+              <div className="upload-queue-copy">
+                <span className="upload-queue-name" title={item.name}>
+                  {item.name}
+                </span>
+                <span className="upload-queue-meta">
+                  {formatBytes(item.size, lang)}
+                  {item.status === "error" && item.error ? ` · ${item.error}` : ""}
+                </span>
+                {item.status === "uploading" && (
+                  <span className="upload-progress" aria-hidden="true">
+                    <span style={{ width: `${Math.round(item.progress * 100)}%` }} />
+                  </span>
+                )}
+              </div>
+              <span className={cx("upload-queue-state", `is-${item.status}`)}>
+                {item.status === "uploading" ? (
+                  t("public.uploadingShort")
+                ) : item.status === "done" ? (
+                  <>
+                    <Icon name="checkCircle" size={16} />
+                    {t("public.uploadDone")}
+                  </>
+                ) : (
+                  <>
+                    <Icon name="alert" size={16} />
+                    {t("public.uploadFailed")}
+                  </>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {sent > 0 && (
+        <p className="upload-sent">
+          <Icon name="checkCircle" size={16} />
+          <span>{t("public.uploadSuccess", { name: share.owner })}</span>
+        </p>
+      )}
+    </section>
+  );
+}
+
 
 export function PublicSharePage() {
   const { token = "" } = useParams();
@@ -60,6 +258,15 @@ export function PublicSharePage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const refresh = useCallback(async () => {
+    try {
+      const result = await api.get<PublicShare>(`/api/public/${encodeURIComponent(token)}`);
+      setData(result);
+    } catch {
+      /* keep the last known state */
+    }
+  }, [token]);
 
   const unlock = async () => {
     if (!password) return;
@@ -175,6 +382,8 @@ export function PublicSharePage() {
             </form>
             <p className="public-owner">{t("public.sharedBy", { name: data.owner })}</p>
           </div>
+        ) : data && data.kind === "upload" ? (
+          <UploadZone token={token} share={data} onUploaded={() => void refresh()} />
         ) : data ? (
           <>
             <section className="public-card">

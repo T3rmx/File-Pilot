@@ -95,6 +95,7 @@ export function SharesPage() {
     value === "all" ? t("common.all") : t(STATUS_KEY[value] ?? value);
 
   const itemSummary = (share: Share) => {
+    if (share.kind === "upload") return t("upload.kind");
     if (share.kind === "folder") return t("shares.folder");
     if (share.kind === "collection" || share.item_count > 1) {
       return t("shares.collection", { n: share.item_count });
@@ -174,9 +175,13 @@ export function SharesPage() {
           </p>
           <div className="share-grid">
             {visible.map((share) => {
-              const limited = share.max_downloads !== null;
+              const isUpload = share.kind === "upload";
+              const limitMax = isUpload ? share.max_uploads : share.max_downloads;
+              const limitCount = isUpload ? share.upload_count : share.download_count;
+              const limitLeft = isUpload ? share.uploads_left : share.downloads_left;
+              const limited = limitMax !== null;
               const percent = limited
-                ? Math.min(100, Math.round((share.download_count / (share.max_downloads || 1)) * 100))
+                ? Math.min(100, Math.round((limitCount / (limitMax || 1)) * 100))
                 : 0;
               return (
                 <article key={share.id} className={cx("share-card", `status-${share.status}`)}>
@@ -214,14 +219,14 @@ export function SharesPage() {
                       <dd>{formatBytes(share.total_size, lang)}</dd>
                     </div>
                     <div>
-                      <dt>{t("dash.downloads")}</dt>
+                      <dt>{isUpload ? t("upload.kind") : t("dash.downloads")}</dt>
                       <dd>
                         {limited
                           ? t("shares.downloadsCount", {
-                              n: share.download_count,
-                              max: share.max_downloads ?? 0,
+                              n: limitCount,
+                              max: limitMax ?? 0,
                             })
-                          : share.download_count}
+                          : limitCount}
                       </dd>
                     </div>
                     <div>
@@ -253,9 +258,11 @@ export function SharesPage() {
                         <div className="progress-fill" style={{ inlineSize: `${percent}%` }} />
                       </div>
                       <span>
-                        {share.downloads_left === null
+                        {limitLeft === null
                           ? t("common.unlimited")
-                          : t("shares.downloadsLeft", { n: share.downloads_left })}
+                          : isUpload
+                            ? t("upload.uploadsLeft", { n: limitLeft })
+                            : t("shares.downloadsLeft", { n: limitLeft })}
                       </span>
                     </div>
                   )}

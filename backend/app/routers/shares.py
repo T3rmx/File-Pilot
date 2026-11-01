@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from ..deps import current_user, get_db
 from ..models import FileEntry, Share, ShareFile, User, expiry_from_now, share_status
-from ..schemas import ShareIn, ShareListOut, ShareOut
+from ..schemas import ShareIn, ShareListOut, ShareOut, UploadShareIn
 from ..security import decrypt_text, encrypt_text, hash_password, new_token, token_digest
 from ..services import collect_share_entries, log_audit, share_out
 
@@ -84,6 +84,49 @@ def create_share(
             "expires_at": share.expires_at.isoformat() if share.expires_at else None,
             "password": bool(share.password_hash),
             "max_downloads": share.max_downloads,
+        },
+    )
+    return share_out(share, token, request, db)
+
+
+@router.post("/upload", response_model=ShareOut, status_code=status.HTTP_201_CREATED)
+def create_upload_share(
+    payload: UploadShareIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> ShareOut:
+    token = new_token(32)
+    label = payload.label.strip() or "Upload dropzone"
+
+    share = Share(
+        owner_id=user.id,
+        token_hash=token_digest(token),
+        token_enc=encrypt_text(request.app.state.secret, token),
+        kind="upload",
+        target_id=None,
+        label=label[:160],
+        password_hash=hash_password(payload.password) if payload.password else None,
+        expires_at=expiry_from_now(payload.expires_in_minutes),
+        max_downloads=None,
+        max_uploads=payload.max_uploads,
+        auto_delete=payload.auto_delete,
+    )
+    db.add(share)
+    db.flush()
+
+    log_audit(
+        db,
+        "share.created",
+        actor_id=user.id,
+        actor_name=user.username,
+        target=label,
+        request=request,
+        meta={
+            "kind": "upload",
+            "expires_at": share.expires_at.isoformat() if share.expires_at else None,
+            "password": bool(share.password_hash),
+            "max_uploads": share.max_uploads,
         },
     )
     return share_out(share, token, request, db)
