@@ -30,19 +30,10 @@
       }
     },
     "windows": {
-      "nsis": {
-        "installerIcon": "icons/icon.ico",
-        "headerIcon": "icons/icon.ico",
-        "installMode": "perMachine",
-        "allowToChangeInstallPath": true,
-        "createDesktopShortcut": true,
-        "createStartMenuShortcut": true
-      },
-      "msi": {
-        "upgradeCode": "{1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d}",
-        "wix": {
-          "language": "en-US"
-        }
+      "nsis": {},
+      "wix": {
+        "language": "en-US",
+        "upgradeCode": "{1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d}"
       }
     },
     "shortDescription": "Local-first file sharing for your LAN",
