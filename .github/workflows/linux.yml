@@ -1,0 +1,233 @@
+name: Linux packages
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "22"
+
+jobs:
+  checks:
+    name: Tests and web build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            packaging/requirements-build.txt
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install "pytest>=8" "httpx>=0.27" "ruff>=0.6"
+
+      - name: Backend tests
+        working-directory: backend
+        run: python -m pytest -q
+
+      - name: Backend lint
+        working-directory: backend
+        run: python -m ruff check app tests
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Type-check web UI
+        working-directory: web
+        run: npm run lint
+
+      - name: Build web UI
+        working-directory: web
+        run: npm run build
+
+      - name: Upload built web UI
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+          if-no-files-found: error
+          retention-days: 7
+
+  linux:
+    name: Build deb, rpm, AppImage
+    needs: checks
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          python - "$version" <<'PY'
+          import json
+          import pathlib
+          import re
+          import sys
+
+          version = sys.argv[1]
+          conf = pathlib.Path("desktop/src-tauri/tauri.conf.json")
+          data = json.loads(conf.read_text(encoding="utf-8"))
+          data["version"] = version
+          conf.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+          init = pathlib.Path("backend/app/__init__.py")
+          text = init.read_text(encoding="utf-8")
+          init.write_text(
+              re.sub(r'__version__ = "[^"]+"', f'__version__ = "{version}"', text),
+              encoding="utf-8",
+          )
+          print(f"Version set to {version}")
+          PY
+
+      - name: Download built web UI
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            libfuse2 \
+            patchelf \
+            rpm \
+            fakeroot
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            packaging/requirements-build.txt
+
+      - name: Install sidecar build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r packaging/requirements-build.txt
+
+      - name: Build backend sidecar
+        run: |
+          pyinstaller --noconfirm --clean \
+            --distpath packaging/dist \
+            --workpath packaging/build \
+            packaging/filepilot-backend.spec
+          file packaging/dist/filepilot-backend
+          mkdir -p desktop/src-tauri/binaries
+          cp packaging/dist/filepilot-backend \
+            desktop/src-tauri/binaries/filepilot-backend-x86_64-unknown-linux-gnu
+          chmod +x desktop/src-tauri/binaries/filepilot-backend-x86_64-unknown-linux-gnu
+
+      - name: Smoke-test the sidecar
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          FILEPILOT_DATA_DIR="$tmp" \
+            FILEPILOT_IMPORT_LEGACY=false \
+            FILEPILOT_HOST=127.0.0.1 \
+            FILEPILOT_PORT=6970 \
+            FILEPILOT_TLS=off \
+            ./desktop/src-tauri/binaries/filepilot-backend-x86_64-unknown-linux-gnu \
+            >"$tmp/sidecar.log" 2>&1 &
+          server_pid=$!
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:6970/api/health >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:6970/api/health
+          curl -fsS http://127.0.0.1:6970/ | grep -qi "<!doctype html"
+          kill "$server_pid" 2>/dev/null || true
+          wait "$server_pid" 2>/dev/null || true
+          cat "$tmp/sidecar.log"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri -> target
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Build Linux bundles
+        working-directory: desktop
+        run: npx tauri build --bundles deb,rpm,appimage
+
+      - name: Collect packages and checksums
+        run: |
+          mkdir -p dist-linux
+          cp desktop/src-tauri/target/release/bundle/deb/*.deb dist-linux/
+          cp desktop/src-tauri/target/release/bundle/rpm/*.rpm dist-linux/
+          cp desktop/src-tauri/target/release/bundle/appimage/*.AppImage dist-linux/
+          cd dist-linux
+          sha256sum *.deb *.rpm *.AppImage > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Upload Linux packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: filepilot-linux-x86_64
+          path: dist-linux/*
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: linux
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: filepilot-linux-x86_64
+          path: artifacts
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
