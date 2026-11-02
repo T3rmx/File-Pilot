@@ -1,0 +1,2 @@
+# Build-only tools for the desktop sidecar. Not needed to run from source.
+pyinstaller>=6.10,<7

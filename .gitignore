@@ -4,6 +4,12 @@ __pycache__/
 data/
 web/node_modules/
 web/dist/
+desktop/node_modules/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+desktop/src-tauri/binaries/
+packaging/build/
+packaging/dist/
 *.log
 *.db
 shared/**

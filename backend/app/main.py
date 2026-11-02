@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -21,8 +22,15 @@ from .services import cleanup_once
 from .ws import ConnectionManager
 from .ws import router as ws_router
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-WEB_DIST = REPO_ROOT / "web" / "dist"
+
+def _web_dist() -> Path:
+    """Find the built SPA in development and inside a frozen desktop sidecar."""
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)) / "web" / "dist"
+    return Path(__file__).resolve().parents[2] / "web" / "dist"
+
+
+WEB_DIST = _web_dist()
 
 TRUST_PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
