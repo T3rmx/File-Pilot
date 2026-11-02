@@ -220,10 +220,11 @@ jobs:
           python -m pip install -r requirements.txt -r packaging/requirements-build.txt
 
       - name: Build backend sidecar (Windows)
+        shell: pwsh
         run: |
-          pyinstaller --noconfirm --clean ^
-            --distpath packaging/dist ^
-            --workpath packaging/build ^
+          pyinstaller --noconfirm --clean `
+            --distpath packaging/dist `
+            --workpath packaging/build `
             packaging/filepilot-backend.spec
           copy packaging\dist\filepilot-backend.exe desktop\src-tauri\binaries\filepilot-backend-x86_64-pc-windows-msvc.exe
 
@@ -247,10 +248,12 @@ jobs:
         run: choco install nsis --version 3.09 --no-progress
 
       - name: Build Windows bundles
+        shell: pwsh
         working-directory: desktop
         run: npx tauri build --bundles nsis,msi
 
       - name: Collect packages and checksums
+        shell: pwsh
         run: |
           mkdir dist-windows
           copy desktop\src-tauri\target\release\bundle\nsis\*.exe dist-windows\
