@@ -226,6 +226,7 @@ jobs:
             --distpath packaging/dist `
             --workpath packaging/build `
             packaging/filepilot-backend.spec
+          New-Item -ItemType Directory -Force -Path desktop\src-tauri\binaries
           copy packaging\dist\filepilot-backend.exe desktop\src-tauri\binaries\filepilot-backend-x86_64-pc-windows-msvc.exe
 
       - uses: dtolnay/rust-toolchain@stable
