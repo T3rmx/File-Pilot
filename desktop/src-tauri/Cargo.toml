@@ -1,5 +1,5 @@
 [package]
-name = "filepilot-desktop"
+name = "filepilot"
 version = "1.0.0"
 description = "FilePilot desktop shell"
 authors = ["FilePilot"]
