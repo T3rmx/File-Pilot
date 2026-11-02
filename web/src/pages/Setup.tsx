@@ -66,7 +66,12 @@ export function SetupPage() {
     try {
       await api.post("/api/system/restart");
       window.setTimeout(() => {
-        if (restartInfo) window.location.href = restartInfo.url;
+        if (!restartInfo) return;
+        // Keep the current host: the desktop shell and local browsers both
+        // reach the server on the same address after the transport change.
+        const target = new URL(window.location.href);
+        target.protocol = restartInfo.tls === "on" ? "https:" : "http:";
+        window.location.href = target.toString();
       }, 2200);
     } catch (err) {
       setRestarting(false);
@@ -76,6 +81,8 @@ export function SetupPage() {
 
   if (phase === "restart" && restartInfo) {
     const secure = restartInfo.tls === "on";
+    const target = new URL(window.location.href);
+    target.protocol = secure ? "https:" : "http:";
     return (
       <AuthShell
         title={t("auth.restartTitle")}
@@ -114,7 +121,7 @@ export function SetupPage() {
             {restarting ? t("auth.restarting") : t("auth.restartNow")}
           </button>
 
-          <a className="btn btn-ghost btn-block" href={restartInfo.url}>
+          <a className="btn btn-ghost btn-block" href={target.toString()}>
             <Icon name="external" size={15} />
             <span>{t("auth.openNewAddress")}</span>
           </a>

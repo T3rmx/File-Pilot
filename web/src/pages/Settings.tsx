@@ -118,14 +118,15 @@ export function SettingsPage() {
 
   const restartForTls = async () => {
     if (!settings) return;
-    const target = settings.tls_mode === "on"
-      ? settings.lan_url.replace(/^http:\/\//, "https://")
-      : settings.lan_url.replace(/^https:\/\//, "http://");
+    // Keep the host we are already on: the desktop shell only allows local
+    // navigation, and the LAN address may differ from the window's origin.
+    const target = new URL(window.location.href);
+    target.protocol = settings.tls_mode === "on" ? "https:" : "http:";
     setRestarting(true);
     try {
       await api.post("/api/system/restart");
       window.setTimeout(() => {
-        window.location.href = target;
+        window.location.href = target.toString();
       }, 2400);
     } catch (err) {
       setRestarting(false);
