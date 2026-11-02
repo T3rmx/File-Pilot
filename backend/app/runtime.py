@@ -61,6 +61,10 @@ def restart_process(delay: float = 0.8) -> None:
     """
 
     def _restart() -> None:
-        os.execv(sys.executable, [sys.executable, "-m", "backend.app", *sys.argv[1:]])
+        if getattr(sys, "frozen", False):
+            # PyInstaller sidecar: sys.executable is the bundled server itself.
+            os.execv(sys.executable, [sys.executable, *sys.argv[1:]])
+        else:
+            os.execv(sys.executable, [sys.executable, "-m", "backend.app", *sys.argv[1:]])
 
     threading.Timer(delay, _restart).start()
