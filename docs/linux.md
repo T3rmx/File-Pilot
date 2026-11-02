@@ -110,10 +110,10 @@ this folder. Remove it manually only if you want to erase all FilePilot data.
 
 ```bash
 # Debian / Ubuntu
-sudo apt remove filepilot
+sudo apt remove file-pilot
 
 # Fedora / RHEL
-sudo dnf remove FilePilot
+sudo dnf remove file-pilot
 
 # AppImage
 rm FilePilot_1.0.0_amd64.AppImage
