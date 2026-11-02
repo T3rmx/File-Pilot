@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ApiError, api } from "../lib/api";
 import type { Share } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import { formatBytes, formatDate, timeAgo, truncateMiddle } from "../lib/format";
 import { useI18n } from "../lib/i18n";
 import { copyText, cx, EmptyState, Modal, Spinner, useUI } from "../lib/ui";
@@ -22,6 +23,8 @@ const STATUS_KEY: Record<string, string> = {
 export function SharesPage() {
   const { t, lang } = useI18n();
   const { toast } = useUI();
+  const { user } = useAuth();
+  const canWrite = user?.role !== "viewer";
   const [shares, setShares] = useState<Share[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -300,7 +303,7 @@ export function SharesPage() {
                         <Icon name="copy" size={15} />
                         <span>{t("shares.copyLink")}</span>
                       </button>
-                      {share.status === "active" && (
+                      {canWrite && share.status === "active" && (
                         <button
                           type="button"
                           className="btn btn-ghost btn-sm btn-danger-text"

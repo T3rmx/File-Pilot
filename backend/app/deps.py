@@ -67,3 +67,10 @@ def admin_user(user: User = Depends(current_user)) -> User:
     if user.role != "admin":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Administrator access required")
     return user
+
+
+def write_user(user: User = Depends(current_user)) -> User:
+    """Admins and members can change files; viewers are read-only."""
+    if user.role not in {"admin", "user"}:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This account is read-only")
+    return user

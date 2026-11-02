@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     port: int = 6969
     lan: bool = True
     tls: Literal["auto", "on", "off"] = "auto"
+    tls_source: Literal["default", "saved", "env", "cli"] = "default"
 
     max_upload_bytes: int = 4 * 1024**3
     import_legacy: bool = True

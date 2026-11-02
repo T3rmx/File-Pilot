@@ -2,14 +2,14 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from "react";
 
 import { api, refreshSession, setAccessToken, setupStatus } from "./api";
-import type { TokenResponse, User } from "./api";
+import type { SetupResponse, TokenResponse, User } from "./api";
 
 interface AuthValue {
   status: "loading" | "ready";
   configured: boolean;
   user: User | null;
   login: (username: string, password: string) => Promise<void>;
-  setup: (username: string, password: string) => Promise<void>;
+  setup: (username: string, password: string, tls: "on" | "off") => Promise<SetupResponse>;
   logout: () => Promise<void>;
   resetLocal: () => void;
 }
@@ -65,11 +65,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setConfigured(true);
   }, []);
 
-  const setup = useCallback(async (username: string, password: string) => {
-    const data = await api.post<TokenResponse>("/api/setup/", { username, password });
+  const setup = useCallback(async (username: string, password: string, tls: "on" | "off") => {
+    const data = await api.post<SetupResponse>("/api/setup/", { username, password, tls });
     setAccessToken(data.access_token);
     setUser(data.user);
     setConfigured(true);
+    return data;
   }, []);
 
   const logout = useCallback(async () => {

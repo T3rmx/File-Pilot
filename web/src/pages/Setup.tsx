@@ -2,12 +2,15 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 
-import { ApiError } from "../lib/api";
+import { ApiError, api } from "../lib/api";
+import type { SetupResponse } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useI18n } from "../lib/i18n";
-import { useUI } from "../lib/ui";
+import { Segmented, useUI } from "../lib/ui";
 import { AuthShell } from "../components/AuthShell";
 import { Icon } from "../components/Icons";
+
+type Phase = "form" | "submitting" | "restart";
 
 export function SetupPage() {
   const { t } = useI18n();
@@ -17,10 +20,14 @@ export function SetupPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [tls, setTls] = useState<"on" | "off">("on");
+  const [phase, setPhase] = useState<Phase>("form");
   const [error, setError] = useState("");
+  const [restartInfo, setRestartInfo] = useState<SetupResponse | null>(null);
+  const [restarting, setRestarting] = useState(false);
+  const [restartError, setRestartError] = useState("");
 
-  if (configured) return <Navigate to="/login" replace />;
+  if (configured && phase === "form") return <Navigate to="/login" replace />;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -37,17 +44,84 @@ export function SetupPage() {
       setError(t("auth.passwordMismatch"));
       return;
     }
-    setBusy(true);
+    setPhase("submitting");
     try {
-      await setup(username.trim(), password);
-      toast(t("toast.welcome"), "success");
-      navigate("/", { replace: true });
+      const data = await setup(username.trim(), password, tls);
+      if (data.restart_required) {
+        setRestartInfo(data);
+        setPhase("restart");
+      } else {
+        toast(t("toast.welcome"), "success");
+        navigate("/", { replace: true });
+      }
     } catch (err) {
+      setPhase("form");
       setError(err instanceof ApiError ? err.detail : t("common.unknownError"));
-    } finally {
-      setBusy(false);
     }
   };
+
+  const restartNow = async () => {
+    setRestartError("");
+    setRestarting(true);
+    try {
+      await api.post("/api/system/restart");
+      window.setTimeout(() => {
+        if (restartInfo) window.location.href = restartInfo.url;
+      }, 2200);
+    } catch (err) {
+      setRestarting(false);
+      setRestartError(err instanceof ApiError ? err.detail : t("common.unknownError"));
+    }
+  };
+
+  if (phase === "restart" && restartInfo) {
+    const secure = restartInfo.tls === "on";
+    return (
+      <AuthShell
+        title={t("auth.restartTitle")}
+        subtitle={t("auth.restartBody")}
+        footer={
+          <span className="auth-note">
+            <Icon name={secure ? "lock" : "info"} size={14} />
+            {secure ? t("auth.httpsHint") : t("auth.httpHint")}
+          </span>
+        }
+      >
+        <div className="form-stack">
+          <div className="transport-preview">
+            <span className="event-icon">
+              <Icon name={secure ? "lock" : "info"} size={18} />
+            </span>
+            <div>
+              <strong>{secure ? t("auth.https") : t("auth.http")}</strong>
+              <code className="mono">{restartInfo.url}</code>
+            </div>
+          </div>
+
+          {restartError && (
+            <p className="form-error" role="alert">
+              <Icon name="alert" size={15} />
+              <span>{restartError}</span>
+            </p>
+          )}
+
+          <button
+            type="button"
+            className="btn btn-primary btn-block"
+            disabled={restarting}
+            onClick={() => void restartNow()}
+          >
+            {restarting ? t("auth.restarting") : t("auth.restartNow")}
+          </button>
+
+          <a className="btn btn-ghost btn-block" href={restartInfo.url}>
+            <Icon name="external" size={15} />
+            <span>{t("auth.openNewAddress")}</span>
+          </a>
+        </div>
+      </AuthShell>
+    );
+  }
 
   return (
     <AuthShell
@@ -102,6 +176,21 @@ export function SetupPage() {
           />
         </label>
 
+        <div className="field">
+          <span className="field-label">{t("auth.transport")}</span>
+          <Segmented<"on" | "off">
+            value={tls}
+            onChange={setTls}
+            options={[
+              { value: "on", label: t("auth.https"), icon: "lock" },
+              { value: "off", label: t("auth.http"), icon: "info" },
+            ]}
+          />
+          <span className="field-hint">
+            {tls === "on" ? t("auth.httpsHint") : t("auth.httpHint")}
+          </span>
+        </div>
+
         {error && (
           <p className="form-error" role="alert">
             <Icon name="alert" size={15} />
@@ -109,8 +198,8 @@ export function SetupPage() {
           </p>
         )}
 
-        <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
-          {busy ? t("auth.creating") : t("auth.createAccount")}
+        <button type="submit" className="btn btn-primary btn-block" disabled={phase === "submitting"}>
+          {phase === "submitting" ? t("auth.creating") : t("auth.createAccount")}
         </button>
       </form>
     </AuthShell>

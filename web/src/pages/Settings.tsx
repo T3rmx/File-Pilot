@@ -10,9 +10,11 @@ import type { Lang } from "../lib/i18n";
 import { useTheme } from "../lib/theme";
 import { copyText, cx, Field, Modal, Segmented, Spinner, Toggle, useUI } from "../lib/ui";
 import { Icon } from "../components/Icons";
+import { UsersPanel } from "../components/UsersPanel";
 import { useNavigate } from "react-router-dom";
 
 type ThemeChoice = "light" | "dark";
+type TlsChoice = "on" | "off";
 
 export function SettingsPage() {
   const { t, lang, setLang } = useI18n();
@@ -29,6 +31,9 @@ export function SettingsPage() {
   const [allowUploads, setAllowUploads] = useState(true);
   const [maxUpload, setMaxUpload] = useState("4096");
   const [lanDiscovery, setLanDiscovery] = useState(true);
+  const [tlsMode, setTlsMode] = useState<TlsChoice>("on");
+  const [restartOpen, setRestartOpen] = useState(false);
+  const [restarting, setRestarting] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
 
   const [audit, setAudit] = useState<AuditItem[]>([]);
@@ -50,6 +55,7 @@ export function SettingsPage() {
       setAllowUploads(data.allow_uploads);
       setMaxUpload(String(data.max_upload_mb));
       setLanDiscovery(data.lan_discovery);
+      setTlsMode(data.tls_mode);
     } catch (err) {
       toast(err instanceof ApiError ? err.detail : t("settings.loadFailed"), "error");
     } finally {
@@ -87,6 +93,7 @@ export function SettingsPage() {
       toast(t("settings.maxUpload"), "error");
       return;
     }
+    const tlsLocked = settings ? settings.tls_source === "cli" || settings.tls_source === "env" : false;
     setSavingSettings(true);
     try {
       const data = await api.patch<ServerSettings>("/api/settings", {
@@ -94,15 +101,35 @@ export function SettingsPage() {
         allow_uploads: allowUploads,
         max_upload_mb: Math.round(size),
         lan_discovery: lanDiscovery,
+        ...(tlsLocked ? {} : { tls: tlsMode }),
       });
       setSettings(data);
       setSiteName(data.site_name);
       setMaxUpload(String(data.max_upload_mb));
+      setTlsMode(data.tls_mode);
       toast(t("settings.saved"), "success");
+      if (data.restart_required) setRestartOpen(true);
     } catch (err) {
       toast(err instanceof ApiError ? err.detail : t("common.unknownError"), "error");
     } finally {
       setSavingSettings(false);
+    }
+  };
+
+  const restartForTls = async () => {
+    if (!settings) return;
+    const target = settings.tls_mode === "on"
+      ? settings.lan_url.replace(/^http:\/\//, "https://")
+      : settings.lan_url.replace(/^https:\/\//, "http://");
+    setRestarting(true);
+    try {
+      await api.post("/api/system/restart");
+      window.setTimeout(() => {
+        window.location.href = target;
+      }, 2400);
+    } catch (err) {
+      setRestarting(false);
+      toast(err instanceof ApiError ? err.detail : t("common.unknownError"), "error");
     }
   };
 
@@ -211,7 +238,7 @@ export function SettingsPage() {
               <div>
                 <strong>{user?.display_name || user?.username}</strong>
                 <span className="account-meta">
-                  {user?.username} · {user?.role === "admin" ? t("auth.admin") : t("auth.user")}
+                  {user?.username} · {t(`users.role.${user?.role ?? "user"}`)}
                 </span>
               </div>
             </div>
@@ -274,6 +301,38 @@ export function SettingsPage() {
                 hint={t("settings.lanDiscoveryHint")}
               />
 
+              {settings.tls_active === "off" && (
+                <div className="alert alert-warn" role="status">
+                  <Icon name="alert" size={18} />
+                  <span>{t("settings.httpWarning")}</span>
+                </div>
+              )}
+
+              <div className="field">
+                <span className="field-label">{t("settings.transport")}</span>
+                {settings.tls_source === "cli" || settings.tls_source === "env" ? (
+                  <code className="lan-url">
+                    {settings.tls_mode === "on" ? t("auth.https") : t("auth.http")} ·{" "}
+                    {t("settings.tlsLocked")}
+                  </code>
+                ) : (
+                  <Segmented<TlsChoice>
+                    value={tlsMode}
+                    onChange={setTlsMode}
+                    options={[
+                      { value: "on", label: t("auth.https"), icon: "lock" },
+                      { value: "off", label: t("auth.http"), icon: "info" },
+                    ]}
+                  />
+                )}
+                <span className="field-hint">
+                  {tlsMode === "on" ? t("auth.httpsHint") : t("auth.httpHint")}
+                </span>
+                {settings.restart_required && (
+                  <span className="field-hint field-warn">{t("settings.restartPending")}</span>
+                )}
+              </div>
+
               <div className="lan-row">
                 <div className="lan-copy">
                   <span className="field-label">{t("settings.lanAddress")}</span>
@@ -285,17 +344,23 @@ export function SettingsPage() {
                     <Icon name="copy" size={15} />
                     <span>{t("common.copy")}</span>
                   </button>
-                  <a className="btn btn-ghost btn-sm" href="/trust" target="_blank" rel="noreferrer">
-                    <Icon name="shield" size={15} />
-                    <span>{t("settings.trustCert")}</span>
-                  </a>
-                  <a className="btn btn-ghost btn-sm" href="/ca.crt" download="filepilot-ca.crt">
-                    <Icon name="download" size={15} />
-                    <span>{t("common.download")}</span>
-                  </a>
+                  {settings.tls_active === "on" && (
+                    <>
+                      <a className="btn btn-ghost btn-sm" href="/trust" target="_blank" rel="noreferrer">
+                        <Icon name="shield" size={15} />
+                        <span>{t("settings.trustCert")}</span>
+                      </a>
+                      <a className="btn btn-ghost btn-sm" href="/ca.crt" download="filepilot-ca.crt">
+                        <Icon name="download" size={15} />
+                        <span>{t("common.download")}</span>
+                      </a>
+                    </>
+                  )}
                 </div>
               </div>
-              <p className="field-hint">{t("settings.trustHint")}</p>
+              {settings.tls_active === "on" && (
+                <p className="field-hint">{t("settings.trustHint")}</p>
+              )}
 
               <div className="settings-foot">
                 <span className="version-tag">
@@ -343,6 +408,44 @@ export function SettingsPage() {
       >
         <p className="modal-text">{t("settings.resetBody")}</p>
       </Modal>
+
+      <Modal
+        open={restartOpen}
+        onClose={() => {
+          if (!restarting) setRestartOpen(false);
+        }}
+        title={t("settings.restartTitle")}
+        subtitle={t("settings.restartSubtitle")}
+        size="sm"
+        footer={
+          <>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={restarting}
+              onClick={() => setRestartOpen(false)}
+            >
+              {t("settings.restartLater")}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={restarting}
+              onClick={() => void restartForTls()}
+            >
+              {restarting ? t("auth.restarting") : t("auth.restartNow")}
+            </button>
+          </>
+        }
+      >
+        <p className="modal-text">
+          {t("settings.restartBody", {
+            mode: settings?.tls_mode === "on" ? t("auth.https") : t("auth.http"),
+          })}
+        </p>
+      </Modal>
+
+      {isAdmin && <UsersPanel />}
 
       <section className="panel">
         <header className="panel-head">

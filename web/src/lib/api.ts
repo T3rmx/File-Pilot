@@ -2,14 +2,48 @@ export interface User {
   id: string;
   username: string;
   display_name: string;
-  role: "admin" | "user" | string;
+  role: "admin" | "user" | "viewer" | string;
   quota_bytes: number | null;
+  disabled?: boolean;
+  created_at?: string | null;
+}
+
+export type Role = "admin" | "user" | "viewer";
+
+export interface ManagedUser extends User {
+  disabled: boolean;
+  created_at: string;
+  file_count: number;
+  storage_used: number;
+}
+
+export interface UserCreateInput {
+  username: string;
+  password: string;
+  display_name?: string;
+  role: Role;
+  quota_bytes: number | null;
+}
+
+export interface UserUpdateInput {
+  display_name?: string;
+  role?: Role;
+  quota_bytes?: number | null;
+  disabled?: boolean;
+  password?: string;
 }
 
 export interface TokenResponse {
   access_token: string;
   expires_in: number;
   user: User;
+}
+
+export interface SetupResponse extends TokenResponse {
+  tls: "on" | "off";
+  active_tls: "on" | "off";
+  restart_required: boolean;
+  url: string;
 }
 
 export interface FileEntry {
@@ -82,6 +116,10 @@ export interface ServerSettings {
   max_upload_mb: number;
   lan_discovery: boolean;
   lan_url: string;
+  tls_mode: "on" | "off";
+  tls_active: "on" | "off";
+  tls_source: "default" | "saved" | "env" | "cli";
+  restart_required: boolean;
   version: string;
 }
 
