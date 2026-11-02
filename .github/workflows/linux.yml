@@ -172,6 +172,11 @@ jobs:
           curl -fsS http://127.0.0.1:6970/api/health
           curl -fsS http://127.0.0.1:6970/ | grep -qi "<!doctype html"
           kill "$server_pid" 2>/dev/null || true
+          for _ in $(seq 1 10); do
+            kill -0 "$server_pid" 2>/dev/null || break
+            sleep 1
+          done
+          kill -9 "$server_pid" 2>/dev/null || true
           wait "$server_pid" 2>/dev/null || true
           cat "$tmp/sidecar.log"
 
