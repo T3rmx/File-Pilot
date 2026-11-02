@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_updater::UpdaterExt;
 
 const PORT: u16 = 6969;
 const APP_DIR: &str = "FilePilot";
@@ -217,6 +218,34 @@ fn main() {
             .build()?;
 
             trust_local_certificate(&window);
+
+            // Check for updates on startup (desktop only)
+            #[cfg(desktop)]
+            {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Ok(Some(update)) = handle.updater().check().await {
+                        let _ = handle.dialog()
+                            .message(&format!("Update {} available. Install now?", update.version))
+                            .title("FilePilot Update")
+                            .kind(tauri_plugin_dialog::MessageDialogKind::Info)
+                            .buttons(tauri_plugin_dialog::MessageDialogButtons::OkCancel)
+                            .blocking_show()
+                            .inspect(|&clicked| {
+                                if clicked {
+                                    tauri::async_runtime::spawn(async move {
+                                        let _ = handle.updater().download_and_install(
+                                            |chunk, total| {
+                                                println!("Downloaded {} of {}", chunk, total.unwrap_or(0));
+                                            },
+                                            || {}
+                                        ).await;
+                                    });
+                                }
+                            });
+                    }
+                });
+            }
 
             if port_open() {
                 fail(

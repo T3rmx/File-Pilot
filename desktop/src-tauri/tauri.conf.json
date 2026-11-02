@@ -14,12 +14,13 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["deb", "rpm", "appimage"],
+    "targets": ["deb", "rpm", "appimage", "nsis", "msi"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
-      "icons/icon.png"
+      "icons/icon.png",
+      "icons/icon.ico"
     ],
     "externalBin": ["binaries/filepilot-backend"],
     "category": "Utility",
@@ -28,9 +29,37 @@
         "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"]
       }
     },
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "headerIcon": "icons/icon.ico",
+        "installMode": "perMachine",
+        "allowToChangeInstallPath": true,
+        "createDesktopShortcut": true,
+        "createStartMenuShortcut": true
+      },
+      "msi": {
+        "upgradeCode": "{1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d}",
+        "wix": {
+          "language": "en-US"
+        }
+      }
+    },
     "shortDescription": "Local-first file sharing for your LAN",
     "longDescription": "FilePilot shares files, folders and upload links privately on your local network. Files stay on your device; there is no cloud account.",
     "publisher": "FilePilot",
     "copyright": "Copyright © 2026 FilePilot"
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDlCQUVGNUMxMTg4QTJBNUYKUldSZktvb1l3Zld1bXo1dStxYWR4UlV6VUphb0ovSCs5OWszU05GckhrRHQra0hWTnJMSXBqUisK",
+      "endpoints": [
+        "https://github.com/T3rmx/File-Pilot/releases/latest/download/{{target}}/{{current_version}}"
+      ],
+      "windows": {
+        "installMode": "passive",
+        "installerArgs": ["/quiet"]
+      }
+    }
   }
 }
