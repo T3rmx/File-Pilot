@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from ..deps import current_user, get_db
+from ..deps import current_user, get_db, write_user
 from ..models import FileEntry, Share, ShareFile, User, expiry_from_now, share_status
 from ..schemas import ShareIn, ShareListOut, ShareOut, UploadShareIn
 from ..security import decrypt_text, encrypt_text, hash_password, new_token, token_digest
@@ -41,7 +41,7 @@ def create_share(
     payload: ShareIn,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(current_user),
+    user: User = Depends(write_user),
 ) -> ShareOut:
     kind, entries, folder = _resolve_entries(db, user, payload)
     token = new_token(32)
@@ -94,7 +94,7 @@ def create_upload_share(
     payload: UploadShareIn,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(current_user),
+    user: User = Depends(write_user),
 ) -> ShareOut:
     token = new_token(32)
     label = payload.label.strip() or "Upload dropzone"
@@ -164,7 +164,7 @@ def revoke_share(
     share_id: str,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(current_user),
+    user: User = Depends(write_user),
 ) -> None:
     share = db.get(Share, share_id)
     if share is None or share.owner_id != user.id:

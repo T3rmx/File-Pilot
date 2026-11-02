@@ -15,7 +15,7 @@ from .config import Settings, load_or_create_secret
 from .db import Base, ensure_schema, make_engine, make_session_factory
 from .deps import admin_user
 from .models import User
-from .routers import auth, files, public, shares, system
+from .routers import auth, files, public, shares, system, users
 from .security import CSP, SECURITY_HEADERS, RateLimiter
 from .services import cleanup_once
 from .ws import ConnectionManager
@@ -112,6 +112,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         targets = [
             settings.db_path,
             settings.data_dir / "secret.key",
+            settings.data_dir / "runtime.json",
             settings.storage_dir,
             settings.tmp_dir,
             settings.logs_dir,
@@ -158,6 +159,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(system.router)
     app.include_router(auth.setup_router)
     app.include_router(auth.router)
+    app.include_router(users.router)
     app.include_router(files.router)
     app.include_router(shares.router)
     app.include_router(public.router)

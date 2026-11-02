@@ -181,7 +181,7 @@ def public_base(request: Request, settings: Settings | None = None) -> str:
     base = str(request.base_url).rstrip("/")
     if _is_loopback(base):
         resolved = settings or request.app.state.settings
-        scheme = "https" if (resolved.tls or "off") != "off" else "http"
+        scheme = request.url.scheme or ("https" if (resolved.tls or "off") != "off" else "http")
         return f"{scheme}://{lan_ip_address()}:{resolved.port}"
     return base
 

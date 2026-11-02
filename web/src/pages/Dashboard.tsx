@@ -29,6 +29,7 @@ export function DashboardPage() {
   const { t, lang } = useI18n();
   const { user } = useAuth();
   const { toast } = useUI();
+  const canWrite = user?.role !== "viewer";
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -86,8 +87,8 @@ export function DashboardPage() {
             <span>{t("dash.trust")}</span>
           </a>
           <Link className="btn btn-primary" to="/files">
-            <Icon name="upload" size={16} />
-            <span>{t("dash.uploadFiles")}</span>
+            <Icon name={canWrite ? "upload" : "folder"} size={16} />
+            <span>{canWrite ? t("dash.uploadFiles") : t("dash.browseFiles")}</span>
           </Link>
         </div>
       </header>
@@ -228,11 +229,11 @@ export function DashboardPage() {
             <div className="quick-list">
               <Link className="quick-item" to="/files">
                 <span className="stat-icon tone-teal">
-                  <Icon name="upload" size={18} />
+                  <Icon name={canWrite ? "upload" : "folder"} size={18} />
                 </span>
                 <span className="quick-copy">
-                  <strong>{t("dash.uploadFiles")}</strong>
-                  <span>{t("dash.uploadHint")}</span>
+                  <strong>{canWrite ? t("dash.uploadFiles") : t("dash.browseFiles")}</strong>
+                  <span>{canWrite ? t("dash.uploadHint") : t("dash.browseHint")}</span>
                 </span>
                 <Icon name="chevronRight" size={16} />
               </Link>

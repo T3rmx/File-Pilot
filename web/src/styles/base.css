@@ -428,6 +428,11 @@ select.input {
   color: var(--text-3);
 }
 
+.field-warn {
+  color: var(--warn);
+  font-weight: 560;
+}
+
 .form-error {
   display: flex;
   align-items: flex-start;
@@ -476,9 +481,14 @@ select.input {
   color: var(--danger);
 }
 
-.chip-muted {
+.chip-muted,
+.chip-neutral {
   background: var(--surface-3);
   color: var(--text-3);
+}
+
+.chip-neutral {
+  color: var(--text-2);
 }
 
 .status-dot {
@@ -683,6 +693,12 @@ select.input {
   border-color: color-mix(in srgb, var(--danger) 26%, transparent);
   background: var(--danger-soft);
   color: var(--danger);
+}
+
+.alert-warn {
+  border-color: color-mix(in srgb, var(--warn) 28%, transparent);
+  background: var(--warn-soft);
+  color: var(--warn);
 }
 
 .list-meta {

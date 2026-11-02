@@ -18,7 +18,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from ..config import Settings
-from ..deps import current_user, get_db, media_user
+from ..deps import current_user, get_db, media_user, write_user
 from ..models import FileEntry, Transfer, User, utcnow
 from ..schemas import Breadcrumb, FileListOut, FileOut, FolderIn, RenameIn
 from ..security import (
@@ -134,7 +134,7 @@ def create_folder(
     payload: FolderIn,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(current_user),
+    user: User = Depends(write_user),
 ) -> FileOut:
     parent = _parent(db, user, payload.parent_id)
     name = sanitize_filename(payload.name, "New folder")
@@ -152,7 +152,7 @@ async def upload(
     file: UploadFile = File(...),
     folder_id: str | None = Form(None),
     db: Session = Depends(get_db),
-    user: User = Depends(current_user),
+    user: User = Depends(write_user),
 ) -> FileOut:
     settings: Settings = request.app.state.settings
     if get_setting(db, "allow_uploads", "1") != "1":
@@ -214,7 +214,7 @@ def rename(
     payload: RenameIn,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(current_user),
+    user: User = Depends(write_user),
 ) -> FileOut:
     entry = _owned(db, user, file_id)
     name = sanitize_filename(payload.name, entry.name)
@@ -234,7 +234,7 @@ def remove(
     file_id: str,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(current_user),
+    user: User = Depends(write_user),
 ) -> None:
     entry = _owned(db, user, file_id)
     settings: Settings = request.app.state.settings

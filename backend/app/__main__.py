@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 import uvicorn
@@ -9,6 +10,7 @@ from . import __version__
 from .config import Settings
 from .main import create_app
 from .routers.system import lan_ip
+from .runtime import read_tls
 from .tls import ensure_certificates
 
 
@@ -22,13 +24,28 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def resolve_tls(args: argparse.Namespace, settings: Settings) -> tuple[str, str]:
+    """CLI wins, then env, then the choice saved by the setup wizard."""
+    if args.no_tls:
+        return "off", "cli"
+    if args.tls:
+        return args.tls, "cli"
+    env_value = os.getenv("FILEPILOT_TLS")
+    if env_value in {"auto", "on", "off"}:
+        return env_value, "env"
+    saved = read_tls(settings.data_dir)
+    if saved:
+        return saved, "saved"
+    return settings.tls, "default"
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     settings = Settings()
 
     port = args.port or settings.port
     host = args.host or ("0.0.0.0" if args.lan else settings.host)
-    tls_mode = "off" if args.no_tls else (args.tls or settings.tls)
+    tls_mode, tls_source = resolve_tls(args, settings)
     settings = Settings(host=host, port=port, lan=args.lan or settings.lan, tls=tls_mode)
 
     cert_file = key_file = None
@@ -40,6 +57,11 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Could not create TLS certificates: {exc}", file=sys.stderr)
                 return 1
             print("TLS unavailable, continuing over HTTP.", file=sys.stderr)
+
+    # Record what is actually running so share URLs and Settings never lie.
+    settings = settings.model_copy(
+        update={"tls": "on" if cert_file else "off", "tls_source": tls_source}
+    )
 
     scheme = "https" if cert_file else "http"
     lan = lan_ip()

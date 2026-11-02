@@ -4,7 +4,8 @@ import { useSearchParams } from "react-router-dom";
 
 import { ApiError, api } from "../lib/api";
 import type { FileEntry, FileList, Share } from "../lib/api";
-import { fileExtension, formatBytes, formatDay } from "../lib/format";
+import { useAuth } from "../lib/auth";
+import { fileExtension, formatBytes, formatDate, formatDay } from "../lib/format";
 import { useI18n } from "../lib/i18n";
 import { copyText, cx, EmptyState, Field, Modal, Segmented, useUI } from "../lib/ui";
 import { FileGlyph } from "../components/FileIcon";
@@ -30,6 +31,8 @@ function initialView(): ViewMode {
 export function FilesPage() {
   const { t, lang } = useI18n();
   const { queueUploads, toast } = useUI();
+  const { user } = useAuth();
+  const canWrite = user?.role !== "viewer";
   const [params, setParams] = useSearchParams();
   const folderId = params.get("folder");
   const query = params.get("q") ?? "";
@@ -54,6 +57,7 @@ export function FilesPage() {
   const [preview, setPreview] = useState<PreviewTarget | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadLinks, setUploadLinks] = useState<Share[]>([]);
+  const [uploadQr, setUploadQr] = useState<Share | null>(null);
 
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -125,18 +129,18 @@ export function FilesPage() {
     let depth = 0;
     const hasFiles = (event: DragEvent) => Array.from(event.dataTransfer?.types ?? []).includes("Files");
     const onEnter = (event: DragEvent) => {
-      if (!hasFiles(event)) return;
+      if (!canWrite || !hasFiles(event)) return;
       event.preventDefault();
       depth += 1;
       setDragging(true);
     };
     const onOver = (event: DragEvent) => {
-      if (!hasFiles(event)) return;
+      if (!canWrite || !hasFiles(event)) return;
       event.preventDefault();
       if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
     };
     const onLeave = (event: DragEvent) => {
-      if (!hasFiles(event)) return;
+      if (!canWrite || !hasFiles(event)) return;
       depth = Math.max(0, depth - 1);
       if (depth === 0) setDragging(false);
     };
@@ -144,6 +148,7 @@ export function FilesPage() {
       event.preventDefault();
       depth = 0;
       setDragging(false);
+      if (!canWrite) return;
       const files = event.dataTransfer?.files;
       if (files && files.length > 0) void queueUploads(files, folderId);
     };
@@ -164,7 +169,7 @@ export function FilesPage() {
       window.removeEventListener("drop", onDrop);
       window.removeEventListener("dragend", onEnd);
     };
-  }, [folderId, queueUploads]);
+  }, [canWrite, folderId, queueUploads]);
 
   const report = useCallback(
     (err: unknown) => {
@@ -226,7 +231,7 @@ export function FilesPage() {
 
   const onPickFiles = (event: ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
-    if (files && files.length > 0) void queueUploads(files, folderId);
+    if (canWrite && files && files.length > 0) void queueUploads(files, folderId);
     event.target.value = "";
   };
 
@@ -334,16 +339,27 @@ export function FilesPage() {
             aria-hidden="true"
             tabIndex={-1}
           />
-          <button type="button" className="btn btn-ghost" onClick={() => setFolderModal(true)}>
-            <Icon name="plus" size={16} />
-            <span>{t("files.newFolder")}</span>
-          </button>
-          <button type="button" className="btn btn-primary" onClick={() => fileInput.current?.click()}>
-            <Icon name="upload" size={16} />
-            <span>{t("files.upload")}</span>
-          </button>
+          {canWrite && (
+            <>
+              <button type="button" className="btn btn-ghost" onClick={() => setFolderModal(true)}>
+                <Icon name="plus" size={16} />
+                <span>{t("files.newFolder")}</span>
+              </button>
+              <button type="button" className="btn btn-primary" onClick={() => fileInput.current?.click()}>
+                <Icon name="upload" size={16} />
+                <span>{t("files.upload")}</span>
+              </button>
+            </>
+          )}
         </div>
       </header>
+
+      {!canWrite && (
+        <div className="alert" role="status">
+          <Icon name="eye" size={18} />
+          <span>{t("files.readOnly")}</span>
+        </div>
+      )}
 
       <div className="files-toolbar">
         <div className="crumb-row">
@@ -426,15 +442,17 @@ export function FilesPage() {
             {selectedEntries.length} {t("common.selected")}
           </span>
           <div className="selection-actions">
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              onClick={shareSelected}
-              disabled={selectedFiles.length === 0 && selectedEntries.length !== 1}
-            >
-              <Icon name="link" size={15} />
-              <span>{t("files.shareSelected")}</span>
-            </button>
+            {canWrite && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={shareSelected}
+                disabled={selectedFiles.length === 0 && selectedEntries.length !== 1}
+              >
+                <Icon name="link" size={15} />
+                <span>{t("files.shareSelected")}</span>
+              </button>
+            )}
             {selectedEntries.length === 1 && !selectedEntries[0].is_dir && (
               <a
                 className="btn btn-ghost btn-sm"
@@ -450,14 +468,16 @@ export function FilesPage() {
                 <span>{t("files.downloadZip")}</span>
               </a>
             )}
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm btn-danger-text"
-              onClick={() => setDeleteTargets(selectedEntries)}
-            >
-              <Icon name="trash" size={15} />
-              <span>{t("common.delete")}</span>
-            </button>
+            {canWrite && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm btn-danger-text"
+                onClick={() => setDeleteTargets(selectedEntries)}
+              >
+                <Icon name="trash" size={15} />
+                <span>{t("common.delete")}</span>
+              </button>
+            )}
             <button
               type="button"
               className="icon-btn icon-btn-sm"
@@ -502,7 +522,7 @@ export function FilesPage() {
                   <Icon name="x" size={15} />
                   <span>{t("files.clearSearch")}</span>
                 </button>
-              ) : (
+              ) : !canWrite ? undefined : (
                 <div className="empty-actions">
                   <button type="button" className="btn btn-primary" onClick={() => fileInput.current?.click()}>
                     <Icon name="upload" size={16} />
@@ -546,15 +566,17 @@ export function FilesPage() {
                 {formatDay(entry.updated_at, lang)}
               </span>
               <div className="tile-actions">
-                <button
-                  type="button"
-                  className="icon-btn icon-btn-sm"
-                  onClick={() => openShare(entry)}
-                  title={t("files.share")}
-                  aria-label={t("files.share")}
-                >
-                  <Icon name="link" size={15} />
-                </button>
+                {canWrite && (
+                  <button
+                    type="button"
+                    className="icon-btn icon-btn-sm"
+                    onClick={() => openShare(entry)}
+                    title={t("files.share")}
+                    aria-label={t("files.share")}
+                  >
+                    <Icon name="link" size={15} />
+                  </button>
+                )}
                 {entry.is_dir ? (
                   <a
                     className="icon-btn icon-btn-sm"
@@ -574,27 +596,31 @@ export function FilesPage() {
                     <Icon name="download" size={15} />
                   </a>
                 )}
-                <button
-                  type="button"
-                  className="icon-btn icon-btn-sm"
-                  onClick={() => {
-                    setRenameTarget(entry);
-                    setRenameValue(entry.name);
-                  }}
-                  title={t("common.rename")}
-                  aria-label={t("common.rename")}
-                >
-                  <Icon name="edit" size={15} />
-                </button>
-                <button
-                  type="button"
-                  className="icon-btn icon-btn-sm"
-                  onClick={() => setDeleteTargets([entry])}
-                  title={t("common.delete")}
-                  aria-label={t("common.delete")}
-                >
-                  <Icon name="trash" size={15} />
-                </button>
+                {canWrite && (
+                  <button
+                    type="button"
+                    className="icon-btn icon-btn-sm"
+                    onClick={() => {
+                      setRenameTarget(entry);
+                      setRenameValue(entry.name);
+                    }}
+                    title={t("common.rename")}
+                    aria-label={t("common.rename")}
+                  >
+                    <Icon name="edit" size={15} />
+                  </button>
+                )}
+                {canWrite && (
+                  <button
+                    type="button"
+                    className="icon-btn icon-btn-sm"
+                    onClick={() => setDeleteTargets([entry])}
+                    title={t("common.delete")}
+                    aria-label={t("common.delete")}
+                  >
+                    <Icon name="trash" size={15} />
+                  </button>
+                )}
               </div>
             </article>
           ))}
@@ -662,15 +688,17 @@ export function FilesPage() {
                     <Icon name="eye" size={15} />
                   </button>
                 )}
-                <button
-                  type="button"
-                  className="icon-btn icon-btn-sm"
-                  onClick={() => openShare(entry)}
-                  title={t("files.share")}
-                  aria-label={t("files.share")}
-                >
-                  <Icon name="link" size={15} />
-                </button>
+                {canWrite && (
+                  <button
+                    type="button"
+                    className="icon-btn icon-btn-sm"
+                    onClick={() => openShare(entry)}
+                    title={t("files.share")}
+                    aria-label={t("files.share")}
+                  >
+                    <Icon name="link" size={15} />
+                  </button>
+                )}
                 {entry.is_dir ? (
                   <a
                     className="icon-btn icon-btn-sm"
@@ -690,27 +718,31 @@ export function FilesPage() {
                     <Icon name="download" size={15} />
                   </a>
                 )}
-                <button
-                  type="button"
-                  className="icon-btn icon-btn-sm"
-                  onClick={() => {
-                    setRenameTarget(entry);
-                    setRenameValue(entry.name);
-                  }}
-                  title={t("common.rename")}
-                  aria-label={t("common.rename")}
-                >
-                  <Icon name="edit" size={15} />
-                </button>
-                <button
-                  type="button"
-                  className="icon-btn icon-btn-sm icon-btn-danger"
-                  onClick={() => setDeleteTargets([entry])}
-                  title={t("common.delete")}
-                  aria-label={t("common.delete")}
-                >
-                  <Icon name="trash" size={15} />
-                </button>
+                {canWrite && (
+                  <button
+                    type="button"
+                    className="icon-btn icon-btn-sm"
+                    onClick={() => {
+                      setRenameTarget(entry);
+                      setRenameValue(entry.name);
+                    }}
+                    title={t("common.rename")}
+                    aria-label={t("common.rename")}
+                  >
+                    <Icon name="edit" size={15} />
+                  </button>
+                )}
+                {canWrite && (
+                  <button
+                    type="button"
+                    className="icon-btn icon-btn-sm icon-btn-danger"
+                    onClick={() => setDeleteTargets([entry])}
+                    title={t("common.delete")}
+                    aria-label={t("common.delete")}
+                  >
+                    <Icon name="trash" size={15} />
+                  </button>
+                )}
               </span>
             </div>
           ))}
@@ -724,7 +756,8 @@ export function FilesPage() {
         </p>
       )}
 
-      <section className="panel upload-panel" aria-labelledby="upload-panel-title">
+      {canWrite && (
+        <section className="panel upload-panel" aria-labelledby="upload-panel-title">
         <div className="upload-panel-head">
           <span className="upload-panel-icon" aria-hidden="true">
             <Icon name="inbox" size={20} />
@@ -741,42 +774,91 @@ export function FilesPage() {
 
         {uploadLinks.length > 0 && (
           <ul className="upload-list">
-            {uploadLinks.map((share) => (
-              <li key={share.id} className="upload-list-item">
-                <div className="upload-list-main">
-                  <strong>{share.label}</strong>
-                  <span className="upload-list-meta">
-                    {share.uploads_left === null
-                      ? t("upload.unlimited")
-                      : t("upload.uploadsLeft", { n: share.uploads_left })}
-                  </span>
-                </div>
-                <code className="upload-list-url" title={share.url}>
-                  {share.url}
-                </code>
-                <div className="upload-list-actions">
-                  <button
-                    type="button"
-                    className="icon-btn icon-btn-sm"
-                    title={t("shares.copyLink")}
-                    aria-label={t("shares.copyLink")}
-                    onClick={() => void copyUploadLink(share)}
-                  >
-                    <Icon name="copy" size={15} />
-                  </button>
-                  <a
-                    className="icon-btn icon-btn-sm"
-                    href={share.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    title={t("shares.open")}
-                    aria-label={t("shares.open")}
-                  >
-                    <Icon name="external" size={15} />
-                  </a>
-                </div>
-              </li>
-            ))}
+            {uploadLinks.map((share) => {
+              const name = share.label.trim() || t("upload.kind");
+              const percent = share.max_uploads
+                ? Math.min(100, Math.round((share.upload_count / (share.max_uploads || 1)) * 100))
+                : 0;
+              return (
+                <li key={share.id} className="upload-list-item">
+                  <div className="upload-list-main">
+                    <a
+                      className="upload-list-name"
+                      href={share.url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <span>{name}</span>
+                      <Icon name="external" size={13} />
+                    </a>
+                    <span className="upload-list-meta">
+                      {share.uploads_left === null
+                        ? t("upload.unlimited")
+                        : t("upload.uploadsLeft", { n: share.uploads_left })}
+                      {" · "}
+                      {t("upload.tooltipCount", { n: share.upload_count })}
+                    </span>
+                    {share.max_uploads !== null && (
+                      <div className="upload-list-progress">
+                        <div className={cx("progress-track", percent >= 100 && "is-warn")}>
+                          <div className="progress-fill" style={{ inlineSize: `${percent}%` }} />
+                        </div>
+                      </div>
+                    )}
+                    <span className="upload-tooltip" role="tooltip">
+                      <strong>{t("upload.tooltipTitle", { name })}</strong>
+                      <span>{t("upload.tooltipCount", { n: share.upload_count })}</span>
+                      <span>
+                        {share.uploads_left === null
+                          ? t("upload.unlimited")
+                          : t("upload.uploadsLeft", { n: share.uploads_left })}
+                      </span>
+                      <span>
+                        {share.password_protected ? t("shares.password") : t("shares.noPassword")}
+                      </span>
+                      <span>
+                        {share.expires_at
+                          ? t("shares.expires", { when: formatDate(share.expires_at, lang) })
+                          : `${t("shares.expiry")}: ${t("common.never")}`}
+                      </span>
+                    </span>
+                  </div>
+                  <code className="upload-list-url" title={share.url}>
+                    {share.url}
+                  </code>
+                  <div className="upload-list-actions">
+                    <button
+                      type="button"
+                      className="icon-btn icon-btn-sm"
+                      title={t("upload.openQr")}
+                      aria-label={t("upload.openQr")}
+                      onClick={() => setUploadQr(share)}
+                    >
+                      <Icon name="qr" size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn icon-btn-sm"
+                      title={t("shares.copyLink")}
+                      aria-label={t("shares.copyLink")}
+                      onClick={() => void copyUploadLink(share)}
+                    >
+                      <Icon name="copy" size={15} />
+                    </button>
+                    <a
+                      className="icon-btn icon-btn-sm"
+                      href={share.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={t("shares.open")}
+                      aria-label={t("shares.open")}
+                    >
+                      <Icon name="external" size={15} />
+                    </a>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
 
@@ -785,6 +867,28 @@ export function FilesPage() {
           <span>{t("upload.panelHint")}</span>
         </p>
       </section>
+      )}
+
+      <Modal
+        open={Boolean(uploadQr)}
+        onClose={() => setUploadQr(null)}
+        title={t("shares.qrTitle")}
+        subtitle={uploadQr?.label}
+        size="sm"
+        footer={
+          <button type="button" className="btn btn-ghost" onClick={() => setUploadQr(null)}>
+            {t("common.close")}
+          </button>
+        }
+      >
+        {uploadQr && (
+          <div className="qr-panel">
+            <div className="qr-frame" dangerouslySetInnerHTML={{ __html: uploadQr.qr_svg }} />
+            <p className="qr-hint">{t("shares.copyQrHint")}</p>
+            <code className="upload-list-url">{uploadQr.url}</code>
+          </div>
+        )}
+      </Modal>
 
       {dragging && (
         <div className="drop-overlay" role="presentation">

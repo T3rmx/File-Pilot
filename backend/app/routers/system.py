@@ -11,7 +11,9 @@ from .. import __version__
 from ..config import Settings
 from ..deps import admin_user, current_user, get_db
 from ..models import AuditLog, FileEntry, Share, Transfer, User, share_status, utcnow
+from ..runtime import read_tls, restart_process, set_tls
 from ..schemas import SettingsIn, SettingsOut, StatsOut
+from ..security import client_ip, require_same_origin
 from ..services import get_bool_setting, get_setting, lan_ip_address, log_audit, set_setting
 
 router = APIRouter(prefix="/api", tags=["system"])
@@ -25,6 +27,33 @@ def lan_ip() -> str:
 @router.get("/health")
 def health() -> dict:
     return {"ok": True, "version": __version__}
+
+
+@router.post("/system/restart")
+def restart_server(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(admin_user),
+) -> dict:
+    """Apply a saved TLS change by re-execing the server process."""
+    require_same_origin(request)
+    limiter = request.app.state.limiter
+    allowed, retry = limiter.check(f"restart:{client_ip(request)}", 3, 60)
+    if not allowed:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Too many restart requests",
+            {"Retry-After": str(retry)},
+        )
+    log_audit(
+        db,
+        "system.restart",
+        actor_id=user.id,
+        actor_name=user.username,
+        request=request,
+    )
+    restart_process()
+    return {"ok": True, "restarting": True}
 
 
 @router.get("/stats", response_model=StatsOut)
@@ -137,13 +166,22 @@ def audit(
 
 def _settings_out(request: Request, db: Session) -> SettingsOut:
     settings: Settings = request.app.state.settings
+    active_tls = "on" if request.url.scheme == "https" else "off"
     scheme = request.url.scheme
+    if settings.tls_source in {"cli", "env"}:
+        saved_tls = active_tls
+    else:
+        saved_tls = read_tls(settings.data_dir) or active_tls
     return SettingsOut(
         site_name=get_setting(db, "site_name", "FilePilot"),
         allow_uploads=get_bool_setting(db, "allow_uploads", True),
         max_upload_mb=int(get_setting(db, "max_upload_mb", str(settings.max_upload_bytes // (1024 * 1024)))),
         lan_discovery=get_bool_setting(db, "lan_discovery", True),
         lan_url=f"{scheme}://{lan_ip()}:{settings.port}",
+        tls_mode=saved_tls,
+        tls_active=active_tls,
+        tls_source=settings.tls_source,
+        restart_required=saved_tls != active_tls,
         version=__version__,
     )
 
@@ -177,5 +215,12 @@ def update_settings(
         set_setting(db, "max_upload_mb", str(capped))
     if payload.lan_discovery is not None:
         set_setting(db, "lan_discovery", "1" if payload.lan_discovery else "0")
+    if payload.tls is not None:
+        if settings.tls_source in {"cli", "env"}:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "TLS is controlled by the command line or FILEPILOT_TLS",
+            )
+        set_tls(settings.data_dir, payload.tls)
     log_audit(db, "settings.updated", actor_id=user.id, actor_name=user.username, request=request)
     return _settings_out(request, db)

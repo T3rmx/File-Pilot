@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 
 from ..deps import current_user, get_db
 from ..models import AuthAttempt, AuthSession, User, utcnow
-from ..schemas import LoginIn, PasswordChangeIn, SetupIn, TokenOut, UserOut
+from ..runtime import set_tls
+from ..schemas import LoginIn, PasswordChangeIn, SetupIn, SetupOut, TokenOut, UserOut
 from ..security import (
     ACCESS_COOKIE,
     REFRESH_COOKIE,
@@ -18,7 +19,7 @@ from ..security import (
     token_digest,
     verify_password,
 )
-from ..services import import_legacy_files, is_configured, log_audit, set_setting
+from ..services import import_legacy_files, is_configured, lan_ip_address, log_audit, set_setting
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 setup_router = APIRouter(prefix="/api/setup", tags=["setup"])
@@ -93,13 +94,13 @@ def setup_status(db: Session = Depends(get_db)) -> dict:
     return {"configured": is_configured(db)}
 
 
-@setup_router.post("/", response_model=TokenOut)
+@setup_router.post("/", response_model=SetupOut)
 def setup(
     payload: SetupIn,
     request: Request,
     response: Response,
     db: Session = Depends(get_db),
-) -> TokenOut:
+) -> SetupOut:
     require_same_origin(request)
     if is_configured(db):
         raise HTTPException(status.HTTP_409_CONFLICT, "FilePilot is already configured")
@@ -113,6 +114,7 @@ def setup(
     if username in {"", "root"}:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Choose another username")
 
+    settings = request.app.state.settings
     user = User(
         username=username,
         display_name=payload.username.strip(),
@@ -121,20 +123,42 @@ def setup(
     )
     db.add(user)
     db.flush()
-    if request.app.state.settings.import_legacy:
+    if settings.import_legacy:
         try:
-            import_legacy_files(request.app.state.settings, db, user)
+            import_legacy_files(settings, db, user)
         except Exception:  # a broken legacy folder must never block first-run setup
             pass
     set_setting(db, "site_name", "FilePilot")
     set_setting(db, "allow_uploads", "1")
-    set_setting(db, "max_upload_mb", str(request.app.state.settings.max_upload_bytes // (1024 * 1024)))
+    set_setting(db, "max_upload_mb", str(settings.max_upload_bytes // (1024 * 1024)))
     set_setting(db, "lan_discovery", "1")
-    log_audit(db, "setup.completed", actor_id=user.id, actor_name=user.username, request=request)
+
+    # Remember the transport choice so the next start uses it.
+    set_tls(settings.data_dir, payload.tls)
+    active_tls = "on" if request.url.scheme == "https" else "off"
+    restart_required = active_tls != payload.tls
+    scheme = "https" if payload.tls == "on" else "http"
+    setup_url = f"{scheme}://{lan_ip_address()}:{settings.port}"
+
+    log_audit(
+        db,
+        "setup.completed",
+        actor_id=user.id,
+        actor_name=user.username,
+        request=request,
+        meta={"tls": payload.tls},
+    )
 
     session, access, refresh = _issue_tokens(db, user, request)
-    _set_auth_cookies(response, access, refresh, request, request.app.state.settings)
-    return _token_response(session, access, user, request.app.state.settings)
+    _set_auth_cookies(response, access, refresh, request, settings)
+    token = _token_response(session, access, user, settings)
+    return SetupOut(
+        **token.model_dump(),
+        tls=payload.tls,
+        active_tls=active_tls,
+        restart_required=restart_required,
+        url=setup_url,
+    )
 
 
 @router.post("/login", response_model=TokenOut)

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+Role = Literal["admin", "user", "viewer"]
 
 
 class LoginIn(BaseModel):
@@ -14,6 +17,7 @@ class SetupIn(BaseModel):
     username: str = Field(min_length=2, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
     password: str = Field(min_length=8, max_length=256)
     storage_note: str = ""
+    tls: Literal["on", "off"] = "on"
 
 
 class UserOut(BaseModel):
@@ -22,14 +26,48 @@ class UserOut(BaseModel):
     display_name: str
     role: str
     quota_bytes: int | None
+    disabled: bool = False
+    created_at: datetime | None = None
 
     model_config = {"from_attributes": True}
+
+
+class UserCreateIn(BaseModel):
+    username: str = Field(min_length=2, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
+    password: str = Field(min_length=8, max_length=256)
+    display_name: str = Field(default="", max_length=120)
+    role: Role = "user"
+    quota_bytes: int | None = Field(default=None, ge=1)
+
+
+class UserUpdateIn(BaseModel):
+    display_name: str | None = Field(default=None, max_length=120)
+    role: Role | None = None
+    quota_bytes: int | None = Field(default=None, ge=1)
+    disabled: bool | None = None
+    password: str | None = Field(default=None, min_length=8, max_length=256)
+
+
+class UserAdminOut(UserOut):
+    file_count: int = 0
+    storage_used: int = 0
+
+
+class UserListOut(BaseModel):
+    items: list[UserAdminOut]
 
 
 class TokenOut(BaseModel):
     access_token: str
     expires_in: int
     user: UserOut
+
+
+class SetupOut(TokenOut):
+    tls: str
+    active_tls: str
+    restart_required: bool
+    url: str
 
 
 class FileOut(BaseModel):
@@ -111,6 +149,7 @@ class SettingsIn(BaseModel):
     allow_uploads: bool | None = None
     max_upload_mb: int | None = Field(default=None, ge=1, le=1024 * 64)
     lan_discovery: bool | None = None
+    tls: Literal["on", "off"] | None = None
 
 
 class SettingsOut(BaseModel):
@@ -119,6 +158,10 @@ class SettingsOut(BaseModel):
     max_upload_mb: int
     lan_discovery: bool
     lan_url: str
+    tls_mode: str
+    tls_active: str
+    tls_source: str
+    restart_required: bool = False
     version: str
 
 
