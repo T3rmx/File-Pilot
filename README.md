@@ -7,7 +7,7 @@ Secure, local-first file sharing for your LAN — files stay on the host device,
 - **Security:** AES-256-GCM share tokens, Argon2id password hashing, per-share passwords, download/upload limits, expiry + instant revoke, rate limiting, audit log, security headers, attachment-only downloads, safe inline preview allowlist, path-traversal + symlink containment, filename sanitisation, CSRF protection, same-origin enforcement.
 - **Access control:** Admins, Members, and Viewers. Manage users and roles from **Settings → Users & roles**.
 - **TLS:** Choose HTTP or HTTPS at first-run setup. Switch later in **Settings → Connection security** (auto-restarts when changed).
-- **Desktop:** Tauri v2 shell (Phase 7 will spawn the local server as a sidecar).
+- **Desktop:** Tauri v2 shell with a bundled PyInstaller backend sidecar. Linux packages (`.deb`, `.rpm`, `.AppImage`) are built by GitHub Actions — see [docs/linux.md](docs/linux.md).
 
 ## Quick start (development)
 
@@ -92,6 +92,25 @@ Precedence at boot: CLI flag (`--tls`, `--no-tls`) → `FILEPILOT_TLS` → saved
 
 On HTTPS, phones will show a one-time certificate warning until you install the local CA from **Settings → Trust certificate** (or visit `/trust`).
 
+## Linux desktop packages
+
+FilePilot also runs as a desktop app. It bundles its own backend, so Python and Node.js are not required on the target machine.
+
+| Package | For |
+| --- | --- |
+| `.deb` | Ubuntu, Debian, Linux Mint, Pop!_OS |
+| `.rpm` | Fedora, RHEL, Rocky, openSUSE |
+| `.AppImage` | Any current Linux distribution, no installation |
+
+Packages are built **only** by GitHub Actions — no local Rust or packaging tools needed:
+
+1. Open **Actions → Linux packages → Run workflow** for a test build, then download the `filepilot-linux-x86_64` artifact.
+2. Push a tag like `v1.0.0` to build and attach all three packages to a GitHub Release.
+
+Desktop data lives in `~/.local/share/FilePilot` (database, uploads, certificates, logs). Uninstalling the app does not delete that folder.
+
+Install commands, the supported distribution baseline, TLS notes, and troubleshooting are in [docs/linux.md](docs/linux.md).
+
 ## Tests
 
 ```bash
@@ -105,6 +124,10 @@ cd web && npm run build && npm run lint
 ```
 backend/   FastAPI application (app/, routers, services, tests)
 web/       React + TypeScript + Vite SPA (src/, vite.config.ts)
+desktop/   Tauri v2 desktop shell (src-tauri/, loader/) and app icons
+packaging/ PyInstaller entry point and spec for the backend sidecar
+docs/      Linux package, install, and troubleshooting notes
+.github/   GitHub Actions workflows (Linux packages)
 legacy/    The original Flask app, kept for reference / import source
 shared/    Legacy demo content (gitignored) — imported once on first run
 data/      Runtime data (gitignored): db, uploads, certs, logs, secret key, runtime.json (saved TLS mode)
