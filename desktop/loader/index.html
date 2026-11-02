@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FilePilot</title>
+    <style>
+      :root {
+        color-scheme: dark light;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        background: #0b1211;
+        color: #e6fffa;
+      }
+      main {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 18px;
+        padding: 32px;
+        text-align: center;
+      }
+      .mark {
+        width: 72px;
+        height: 72px;
+        border-radius: 20px;
+        background: linear-gradient(135deg, #0f766e, #134e4a);
+        display: grid;
+        place-items: center;
+        box-shadow: 0 18px 50px rgba(15, 118, 110, 0.35);
+      }
+      .mark svg { width: 44px; height: 44px; }
+      h1 { margin: 0; font-size: 20px; font-weight: 650; letter-spacing: -0.01em; }
+      p { margin: 0; color: #9fb8b3; font-size: 13px; }
+      .spinner {
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        border: 2px solid rgba(153, 246, 228, 0.25);
+        border-top-color: #5eead4;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M3 12.5 21 4l-5.5 17-4.3-6.2L3 12.5Z" fill="#fff" />
+          <path d="m11.2 14.8 9.8-10.8-5.5 17-4.3-6.2Z" fill="#99f6e4" />
+        </svg>
+      </div>
+      <div class="spinner" aria-hidden="true"></div>
+      <div>
+        <h1>Starting FilePilot</h1>
+        <p>Your local server is coming up.</p>
+      </div>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "FilePilot",
+  "version": "1.0.0",
+  "identifier": "app.filepilot.desktop",
+  "build": {
+    "frontendDist": "../loader"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["deb", "rpm", "appimage"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png"
+    ],
+    "externalBin": ["binaries/filepilot-backend"],
+    "category": "Utility",
+    "linux": {
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"]
+      }
+    },
+    "shortDescription": "Local-first file sharing for your LAN",
+    "longDescription": "FilePilot shares files, folders and upload links privately on your local network. Files stay on your device; there is no cloud account.",
+    "publisher": "FilePilot",
+    "copyright": "Copyright © 2026 FilePilot"
+  }
+}
