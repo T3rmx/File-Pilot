@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import secrets
 import shutil
 import sys
 from contextlib import asynccontextmanager
@@ -9,12 +10,13 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import __version__
 from .config import Settings, load_or_create_secret
 from .db import Base, ensure_schema, make_engine, make_session_factory
-from .deps import admin_user
+from .deps import admin_user, get_db
 from .models import User
 from .routers import auth, files, public, shares, system, users
 from .security import CSP, SECURITY_HEADERS, RateLimiter
@@ -112,21 +114,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.tickets = {}
 
     @app.post("/api/system/reset", include_in_schema=False)
-    def reset_server(request: Request, user: User = Depends(admin_user)) -> dict:
+    def reset_server(
+        request: Request,
+        db: Session = Depends(get_db),
+        user: User = Depends(admin_user),
+    ) -> dict:
         """Wipe runtime data (db, uploads, tmp, logs, certs, secret) and drop to first-run state."""
         settings: Settings = request.app.state.settings
-        engine = request.app.state.engine
-        engine.dispose()
-        targets = [
-            settings.db_path,
-            settings.data_dir / "secret.key",
-            settings.data_dir / "runtime.json",
+
+        # Drop and recreate the schema so the reset never has to delete the SQLite
+        # file out from under a live connection (which is what broke it on Windows).
+        db.commit()
+        Base.metadata.drop_all(bind=db.get_bind())
+        Base.metadata.create_all(bind=db.get_bind())
+        ensure_schema(db.get_bind())
+        db.commit()
+
+        # Rotate the secret so tokens issued before the reset stop working.
+        request.app.state.secret = secrets.token_urlsafe(48)
+        try:
+            (settings.data_dir / "secret.key").unlink()
+        except OSError:
+            pass
+
+        # Best-effort file cleanup; failures (locked files) must not break the
+        # reset because the recreated empty schema is authoritative anyway.
+        for path in (
             settings.storage_dir,
             settings.tmp_dir,
-            settings.logs_dir,
             settings.certs_dir,
-        ]
-        for path in targets:
+            settings.data_dir / "legacy",
+        ):
             try:
                 if path.is_dir():
                     shutil.rmtree(path, ignore_errors=True)
@@ -134,11 +152,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     path.unlink()
             except OSError:
                 pass
-        engine = make_engine(settings.db_path)
-        Base.metadata.create_all(engine)
-        ensure_schema(engine)
-        request.app.state.engine = engine
-        request.app.state.session_factory = make_session_factory(engine)
+
+        if settings.logs_dir.is_dir():
+            for log_file in settings.logs_dir.glob("*"):
+                # The desktop shell holds the log file open while we run; only best-effort.
+                try:
+                    if log_file.is_file():
+                        log_file.unlink()
+                except OSError:
+                    pass
+
+        try:
+            (settings.data_dir / "runtime.json").unlink()
+        except OSError:
+            pass
+
         return {"ok": True, "reset": True}
 
     @app.middleware("http")

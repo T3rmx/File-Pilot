@@ -408,3 +408,23 @@ export async function wsTicket(): Promise<string> {
   const data = await request<{ ticket: string }>("/api/ws/ticket", { method: "POST" });
   return data.ticket;
 }
+
+/**
+ * Poll the server until it answers (or the timeout elapses). Used after a
+ * restart so the UI never navigates to a transport that is not listening yet.
+ */
+export async function waitForServer(timeoutMs = 20000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  // Keep the origin the user is already on; switching transport changes the scheme.
+  const url = new URL("/api/health", window.location.href);
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(url, { cache: "no-store", headers: { Accept: "application/json" } });
+      if (response.ok) return true;
+    } catch {
+      /* the server may still be restarting */
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return false;
+}

@@ -16,6 +16,17 @@ use tauri_plugin_updater::UpdaterExt;
 const PORT: u16 = 6969;
 const APP_DIR: &str = "FilePilot";
 
+static SHUTDOWN_REQUESTED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+fn shutdown_requested() -> bool {
+    SHUTDOWN_REQUESTED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+fn request_shutdown() {
+    SHUTDOWN_REQUESTED.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
 struct Sidecar(Mutex<Option<Child>>);
 
 fn data_dir(app: &AppHandle) -> PathBuf {
@@ -113,6 +124,7 @@ fn spawn_sidecar(app: &AppHandle) -> Result<Child, String> {
         .env("FILEPILOT_IMPORT_LEGACY", "false")
         .env("FILEPILOT_HOST", "0.0.0.0")
         .env("FILEPILOT_PORT", PORT.to_string())
+        .env("FILEPILOT_DESKTOP", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(log_err));
@@ -128,36 +140,84 @@ fn spawn_sidecar(app: &AppHandle) -> Result<Child, String> {
         .map_err(|err| format!("Could not start the FilePilot server:\n\n{err}"))
 }
 
-fn wait_for_server(app: AppHandle) {
+fn supervise(app: AppHandle) {
+    let mut failure_count: u32 = 0;
+    let mut navigated = false;
+    let mut ready_since: Option<Instant> = None;
+    let deadline = Instant::now() + Duration::from_secs(120);
+
     thread::spawn(move || {
-        let deadline = Instant::now() + Duration::from_secs(45);
-        while !port_open() {
-            if child_exited(&app) {
+        loop {
+            thread::sleep(Duration::from_millis(300));
+            if shutdown_requested() {
+                return;
+            }
+
+        if child_exited(&app) {
+            let dir = data_dir(&app);
+            let restart_pending = dir
+                .join("restart.pending")
+                .exists()
+                || dir.join("reset.pending").exists();
+            let _ = fs::remove_file(dir.join("restart.pending"));
+            let _ = fs::remove_file(dir.join("reset.pending"));
+            if restart_pending {
+                failure_count = 0;
+            }
+            failure_count += 1;
+            if failure_count > 5 {
                 fail(
                     &app,
-                    "The FilePilot server stopped before it was ready.\n\nSee the desktop log in the FilePilot data folder for details.",
+                    "The FilePilot server component keeps stopping.\n\nSee the desktop log in the FilePilot data folder for details.",
                 );
                 return;
             }
-            if Instant::now() >= deadline {
-                fail(
-                    &app,
-                    "FilePilot took too long to start.\n\nPort 6969 may be in use. See the desktop log in the FilePilot data folder.",
-                );
+            let spawned = spawn_sidecar(&app).and_then(|child| {
+                if let Some(state) = app.try_state::<Sidecar>() {
+                    if let Ok(mut guard) = state.0.lock() {
+                        *guard = Some(child);
+                    }
+                }
+                Ok(())
+            });
+            if let Err(message) = spawned {
+                fail(&app, &message);
                 return;
             }
-            thread::sleep(Duration::from_millis(250));
+            navigated = false;
+            ready_since = None;
         }
 
-        // Give uvicorn a moment to finish binding before the webview navigates.
-        thread::sleep(Duration::from_millis(700));
-        let scheme = saved_scheme(&data_dir(&app));
-        if let Some(window) = app.get_webview_window("main") {
-            let _ = window.eval(format!(
-                "window.location.replace('{scheme}://127.0.0.1:{PORT}/')"
-            ));
-            let _ = window.show();
-            let _ = window.set_focus();
+        if port_open() {
+            let now = Instant::now();
+            if ready_since.is_none() {
+                ready_since = Some(now);
+            }
+            let settled = ready_since
+                .map(|at| now.duration_since(*at).as_millis() as u64 >= 1500)
+                .unwrap_or(false);
+            if settled && !navigated {
+                navigated = true;
+                let dir = data_dir(&app);
+                let scheme = saved_scheme(&dir);
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.eval(format!(
+                        "window.location.replace('{scheme}://127.0.0.1:{PORT}/')"
+                    ));
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        } else {
+            ready_since = None;
+            if Instant::now() > deadline {
+                fail(
+                    &app,
+                    "The FilePilot server did not start in time.\n\nPort 6969 may be in use. See the desktop log in the FilePilot data folder.",
+                );
+                return;
+            }
+        }
         }
     });
 }
@@ -301,7 +361,7 @@ fn main() {
             match spawn_sidecar(&handle) {
                 Ok(child) => {
                     handle.manage(Sidecar(Mutex::new(Some(child))));
-                    wait_for_server(handle.clone());
+                    thread::spawn(move || supervise(handle.clone()));
                 }
                 Err(message) => fail(&handle, &message),
             }
@@ -313,6 +373,7 @@ fn main() {
 
     app.run(|handle, event| {
         if matches!(event, RunEvent::Exit) {
+            request_shutdown();
             if let Some(state) = handle.try_state::<Sidecar>() {
                 if let Ok(mut guard) = state.0.lock() {
                     if let Some(mut child) = guard.take() {

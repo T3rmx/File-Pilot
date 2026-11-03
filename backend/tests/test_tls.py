@@ -146,7 +146,7 @@ def test_tls_is_locked_when_set_by_the_command_line(tmp_path):
 
 def test_restart_requires_admin_and_re_execs(tmp_path, monkeypatch):
     called: list[bool] = []
-    monkeypatch.setattr(system, "restart_process", lambda: called.append(True))
+    monkeypatch.setattr(system, "restart_process", lambda *args, **kwargs: called.append(True))
 
     client = fresh_client(tmp_path)
     with client:
