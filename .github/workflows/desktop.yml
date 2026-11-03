@@ -173,6 +173,9 @@ jobs:
 
       - name: Build Linux bundles
         working-directory: desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npx tauri build --bundles deb,rpm,appimage
 
       - name: Collect packages and checksums
@@ -181,8 +184,9 @@ jobs:
           cp desktop/src-tauri/target/release/bundle/deb/*.deb dist-linux/
           cp desktop/src-tauri/target/release/bundle/rpm/*.rpm dist-linux/
           cp desktop/src-tauri/target/release/bundle/appimage/*.AppImage dist-linux/
+          cp desktop/src-tauri/target/release/bundle/appimage/*.AppImage.sig dist-linux/
           cd dist-linux
-          sha256sum *.deb *.rpm *.AppImage > SHA256SUMS.txt
+          sha256sum *.deb *.rpm *.AppImage *.sig > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Upload Linux packages
@@ -251,6 +255,9 @@ jobs:
       - name: Build Windows bundles
         shell: pwsh
         working-directory: desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npx tauri build --bundles nsis,msi
 
       - name: Collect packages and checksums
@@ -258,10 +265,16 @@ jobs:
         run: |
           mkdir dist-windows
           copy desktop\src-tauri\target\release\bundle\nsis\*.exe dist-windows\
+          copy desktop\src-tauri\target\release\bundle\nsis\*.exe.sig dist-windows\
           copy desktop\src-tauri\target\release\bundle\msi\*.msi dist-windows\
+          copy desktop\src-tauri\target\release\bundle\msi\*.msi.sig dist-windows\
           cd dist-windows
-          certutil -hashfile *.exe SHA256 > SHA256SUMS.txt
-          certutil -hashfile *.msi SHA256 >> SHA256SUMS.txt
+          Get-ChildItem -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' } |
+            Sort-Object Name |
+            ForEach-Object {
+              $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+              "$hash  $($_.Name)"
+            } | Set-Content SHA256SUMS.txt
           type SHA256SUMS.txt
 
       - name: Upload Windows packages
@@ -293,9 +306,67 @@ jobs:
           mkdir -p release-artifacts
           cp artifacts-linux/* release-artifacts/
           cp artifacts-windows/* release-artifacts/
+          rm -f release-artifacts/SHA256SUMS.txt
+
+      - name: Generate updater manifest
+        run: |
+          python3 - <<'PY'
+          import datetime
+          import glob
+          import json
+          import os
+          import sys
+
+          tag = os.environ["GITHUB_REF_NAME"]
+          version = tag.lstrip("v")
+          repo = os.environ["GITHUB_REPOSITORY"]
+          base = f"https://github.com/{repo}/releases/download/{tag}"
+
+          platforms = {}
+
+          def add(key, pattern):
+              matches = glob.glob(f"release-artifacts/{pattern}")
+              if not matches:
+                  return
+              path = matches[0]
+              sig = f"{path}.sig"
+              if not os.path.exists(sig):
+                  sys.exit(f"Missing signature for {path}")
+              with open(sig, encoding="utf-8") as handle:
+                  signature = handle.read().strip()
+              platforms[key] = {
+                  "signature": signature,
+                  "url": f"{base}/{os.path.basename(path)}",
+              }
+
+          add("linux-x86_64", "*.AppImage")
+          add("windows-x86_64", "*setup.exe")
+
+          if not platforms:
+              sys.exit("No updater artifacts found")
+
+          manifest = {
+              "version": version,
+              "notes": f"FilePilot {version}",
+              "pub_date": datetime.datetime.now(datetime.timezone.utc)
+              .isoformat(timespec="seconds")
+              .replace("+00:00", "Z"),
+              "platforms": platforms,
+          }
+          with open("release-artifacts/latest.json", "w", encoding="utf-8") as handle:
+              json.dump(manifest, handle, indent=2)
+              handle.write("\n")
+          print(json.dumps(manifest, indent=2))
+          PY
+
+      - name: Generate checksums
+        run: |
           cd release-artifacts
-          sha256sum * > SHA256SUMS.txt
+          find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%f\n' |
+            sort |
+            xargs sha256sum > SHA256SUMS.txt
           cat SHA256SUMS.txt
+
       - name: Upload release candidate
         uses: actions/upload-artifact@v4
         with:

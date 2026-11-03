@@ -196,6 +196,7 @@ fn main() {
             show_main(app);
         }))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let handle = app.handle().clone();
             let window = WebviewWindowBuilder::new(
@@ -224,26 +225,40 @@ fn main() {
             {
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    if let Ok(Some(update)) = handle.updater().check().await {
-                        let _ = handle.dialog()
-                            .message(&format!("Update {} available. Install now?", update.version))
-                            .title("FilePilot Update")
-                            .kind(tauri_plugin_dialog::MessageDialogKind::Info)
-                            .buttons(tauri_plugin_dialog::MessageDialogButtons::OkCancel)
-                            .blocking_show()
-                            .inspect(|&clicked| {
-                                if clicked {
-                                    tauri::async_runtime::spawn(async move {
-                                        let _ = handle.updater().download_and_install(
-                                            |chunk, total| {
-                                                println!("Downloaded {} of {}", chunk, total.unwrap_or(0));
-                                            },
-                                            || {}
-                                        ).await;
-                                    });
+                    let updater = match handle.updater() {
+                        Ok(updater) => updater,
+                        Err(_) => return,
+                    };
+                    let Ok(Some(update)) = updater.check().await else {
+                        return;
+                    };
+                    let restart_handle = handle.clone();
+                    handle
+                        .dialog()
+                        .message(format!(
+                            "FilePilot {} is available. Install it now?",
+                            update.version
+                        ))
+                        .title("FilePilot Update")
+                        .kind(tauri_plugin_dialog::MessageDialogKind::Info)
+                        .buttons(tauri_plugin_dialog::MessageDialogButtons::OkCancelCustom(
+                            "Install".into(),
+                            "Dismiss".into(),
+                        ))
+                        .show(move |install| {
+                            if !install {
+                                return;
+                            }
+                            tauri::async_runtime::spawn(async move {
+                                if update
+                                    .download_and_install(|_chunk, _total| {}, || {})
+                                    .await
+                                    .is_ok()
+                                {
+                                    restart_handle.restart();
                                 }
                             });
-                    }
+                        });
                 });
             }
 

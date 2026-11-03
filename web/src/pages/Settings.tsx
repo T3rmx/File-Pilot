@@ -577,7 +577,7 @@ export function SettingsPage() {
         <Icon name="shield" size={14} />
         <span>{t("settings.aboutBody")}</span>
         <span className="version-tag">
-          {t("settings.version")} {settings?.version ?? "1.0.0"}
+          {t("settings.version")} {settings?.version ?? "1.1.0"}
         </span>
       </p>
     </div>

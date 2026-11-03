@@ -21,6 +21,8 @@ export function UploadLinkDialog({
   const { t, lang } = useI18n();
   const { toast } = useUI();
   const [label, setLabel] = useState("");
+  const [tokenMode, setTokenMode] = useState<"auto" | "custom">("auto");
+  const [customToken, setCustomToken] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [expiry, setExpiry] = useState<string>("0");
@@ -33,6 +35,8 @@ export function UploadLinkDialog({
   useEffect(() => {
     if (!open) return;
     setLabel("");
+    setTokenMode("auto");
+    setCustomToken("");
     setPassword("");
     setShowPassword(false);
     setExpiry("0");
@@ -43,12 +47,20 @@ export function UploadLinkDialog({
     setQrOpen(false);
   }, [open]);
 
+  const customTokenValid = /^[A-Za-z0-9_-]{8,64}$/.test(customToken.trim());
+  const tokenValid = tokenMode === "auto" || customTokenValid;
+
   const create = async () => {
+    if (!tokenValid) {
+      setError(t("shares.tokenInvalid"));
+      return;
+    }
     setBusy(true);
     setError("");
     try {
       const share = await api.post<Share>("/api/shares/upload", {
         label: label.trim(),
+        custom_token: tokenMode === "custom" ? customToken.trim() : null,
         password: password ? password : null,
         expires_in_minutes: expiry === "0" ? null : Number(expiry),
         max_uploads: maxUploads ? Number(maxUploads) : null,
@@ -103,7 +115,7 @@ export function UploadLinkDialog({
             <button
               type="button"
               className="btn btn-primary"
-              disabled={busy}
+              disabled={busy || !tokenValid}
               onClick={() => void create()}
             >
               {busy ? t("shares.creating") : t("upload.create")}
@@ -176,6 +188,43 @@ export function UploadLinkDialog({
               onChange={(event) => setLabel(event.target.value)}
             />
           </Field>
+
+          <div className="field">
+            <span className="field-label">{t("shares.tokenMode")}</span>
+            <div className="segmented" role="group" aria-label={t("shares.tokenMode")}>
+              <button
+                type="button"
+                className={`segment ${tokenMode === "auto" ? "is-active" : ""}`}
+                onClick={() => setTokenMode("auto")}
+              >
+                {t("shares.tokenAuto")}
+              </button>
+              <button
+                type="button"
+                className={`segment ${tokenMode === "custom" ? "is-active" : ""}`}
+                onClick={() => setTokenMode("custom")}
+              >
+                {t("shares.tokenCustom")}
+              </button>
+            </div>
+            {tokenMode === "custom" && (
+              <>
+                <input
+                  className="input mono"
+                  value={customToken}
+                  maxLength={64}
+                  autoComplete="off"
+                  spellCheck={false}
+                  aria-label={t("shares.tokenCustom")}
+                  placeholder={t("shares.tokenPlaceholder")}
+                  onChange={(event) => setCustomToken(event.target.value)}
+                />
+                <span className="field-hint">
+                  {customToken && !customTokenValid ? t("shares.tokenInvalid") : t("shares.tokenHint")}
+                </span>
+              </>
+            )}
+          </div>
 
           <Field label={t("shares.passwordOptional")} htmlFor="upload-password">
             <span className="input-wrap">

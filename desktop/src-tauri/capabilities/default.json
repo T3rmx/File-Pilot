@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Default FilePilot desktop capability",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "updater:default"]
 }

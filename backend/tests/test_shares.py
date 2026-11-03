@@ -22,6 +22,50 @@ def test_share_creation_returns_url_and_qr(client, headers):
     assert share["item_count"] == 1
 
 
+def test_custom_share_token(client, headers):
+    _, share = make_share(
+        client, headers, name="custom-token.txt", custom_token="my-custom-token"
+    )
+    assert share["url"].endswith("/s/my-custom-token")
+    assert client.get("/api/public/my-custom-token").status_code == 200
+
+
+def test_duplicate_custom_token_is_rejected(client, headers):
+    make_share(client, headers, name="duplicate-a.txt", custom_token="taken-token")
+    second = upload(client, headers, "duplicate-b.txt", b"second").json()
+    response = client.post(
+        "/api/shares",
+        headers=headers,
+        json={"file_ids": [second["id"]], "custom_token": "taken-token"},
+    )
+    assert response.status_code == 409
+    assert "already in use" in response.json()["detail"]
+
+
+def test_invalid_custom_token_is_rejected(client, headers):
+    file = upload(client, headers, "invalid-token.txt", b"content").json()
+    for token in ("short", "has spaces here", "bad/token/name", "x" * 65):
+        response = client.post(
+            "/api/shares",
+            headers=headers,
+            json={"file_ids": [file["id"]], "custom_token": token},
+        )
+        assert response.status_code == 422, token
+
+
+def test_custom_upload_token(client, headers):
+    response = client.post(
+        "/api/shares/upload",
+        headers=headers,
+        json={"custom_token": "drop-zone-2026"},
+    )
+    assert response.status_code == 201, response.text
+    share = response.json()
+    assert share["url"].endswith("/s/drop-zone-2026")
+    assert share["kind"] == "upload"
+    assert client.get("/api/public/drop-zone-2026").status_code == 200
+
+
 def test_public_info_and_download(client, headers):
     _, share = make_share(client, headers)
     token = share["url"].rsplit("/", 1)[-1]
