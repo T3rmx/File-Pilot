@@ -110,6 +110,9 @@ class ShareIn(BaseModel):
     expires_in_minutes: int | None = Field(default=None, ge=1, le=60 * 24 * 365)
     max_downloads: int | None = Field(default=None, ge=1, le=100_000)
     auto_delete: bool = False
+    custom_token: str | None = Field(
+        default=None, min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$"
+    )
 
 
 class UploadShareIn(BaseModel):
@@ -118,6 +121,9 @@ class UploadShareIn(BaseModel):
     expires_in_minutes: int | None = Field(default=None, ge=1, le=60 * 24 * 365)
     max_uploads: int | None = Field(default=None, ge=1, le=100_000)
     auto_delete: bool = False
+    custom_token: str | None = Field(
+        default=None, min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$"
+    )
 
 
 class ShareOut(BaseModel):

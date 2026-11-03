@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..deps import current_user, get_db, write_user
@@ -10,6 +11,26 @@ from ..security import decrypt_text, encrypt_text, hash_password, new_token, tok
 from ..services import collect_share_entries, log_audit, share_out
 
 router = APIRouter(prefix="/api/shares", tags=["shares"])
+
+TOKEN_IN_USE = "That custom token is already in use. Choose another one."
+
+
+def _token_for(db: Session, custom_token: str | None) -> str:
+    if not custom_token:
+        return new_token(32)
+    token = custom_token.strip()
+    exists = db.query(Share.id).filter(Share.token_hash == token_digest(token)).first()
+    if exists:
+        raise HTTPException(status.HTTP_409_CONFLICT, TOKEN_IN_USE)
+    return token
+
+
+def _flush_share(db: Session, share: Share) -> None:
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, TOKEN_IN_USE) from exc
 
 
 def _resolve_entries(db: Session, user: User, payload: ShareIn) -> tuple[str, list[FileEntry], FileEntry | None]:
@@ -44,7 +65,7 @@ def create_share(
     user: User = Depends(write_user),
 ) -> ShareOut:
     kind, entries, folder = _resolve_entries(db, user, payload)
-    token = new_token(32)
+    token = _token_for(db, payload.custom_token)
 
     if kind == "file":
         label = payload.label.strip() or entries[0].name
@@ -96,7 +117,7 @@ def create_upload_share(
     db: Session = Depends(get_db),
     user: User = Depends(write_user),
 ) -> ShareOut:
-    token = new_token(32)
+    token = _token_for(db, payload.custom_token)
     label = payload.label.strip() or "Upload dropzone"
 
     share = Share(
@@ -113,7 +134,7 @@ def create_upload_share(
         auto_delete=payload.auto_delete,
     )
     db.add(share)
-    db.flush()
+    _flush_share(db, share)
 
     log_audit(
         db,

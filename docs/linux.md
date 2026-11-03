@@ -17,10 +17,11 @@ web UI in a desktop window.
 All packages are built by GitHub Actions. Nothing needs to be compiled on your
 machine.
 
-- **Manual test build:** GitHub → **Actions** → **Linux packages** → **Run
+- **Manual test build:** GitHub → **Actions** → **Desktop packages** → **Run
   workflow**. Download the `filepilot-linux-x86_64` artifact when it finishes.
-- **Release build:** push a tag such as `v1.0.0`. The same workflow builds the
-  packages and attaches them to a GitHub Release.
+- **Release build:** push a tag such as `v1.1.0`. The same workflow builds the
+  Linux and Windows packages, then waits for approval on the `release`
+  environment before publishing them to a GitHub Release.
 
 The workflow runs on `ubuntu-22.04` with Python 3.12, Node.js 22, and stable
 Rust. It installs WebKitGTK 4.1, RPM tooling, AppImage tooling, and then:
@@ -32,8 +33,8 @@ Rust. It installs WebKitGTK 4.1, RPM tooling, AppImage tooling, and then:
 5. Writes `SHA256SUMS.txt`.
 6. On `v*` tags, publishes a GitHub Release with every file.
 
-The tag should match the app version. For example, tag `v1.0.0` for version
-`1.0.0`.
+The tag should match the app version. For example, tag `v1.1.0` for version
+`1.1.0`.
 
 ## Install
 
@@ -42,7 +43,7 @@ Download the files from the GitHub Release or the workflow artifact.
 ### Debian / Ubuntu (`.deb`)
 
 ```bash
-sudo apt install ./FilePilot_1.0.0_amd64.deb
+sudo apt install ./FilePilot_1.1.0_amd64.deb
 ```
 
 Then launch **FilePilot** from your application menu, or run `filepilot`.
@@ -50,9 +51,9 @@ Then launch **FilePilot** from your application menu, or run `filepilot`.
 ### Fedora / RHEL / openSUSE (`.rpm`)
 
 ```bash
-sudo dnf install ./FilePilot-1.0.0-1.x86_64.rpm
+sudo dnf install ./FilePilot-1.1.0-1.x86_64.rpm
 # openSUSE:
-sudo zypper install ./FilePilot-1.0.0-1.x86_64.rpm
+sudo zypper install ./FilePilot-1.1.0-1.x86_64.rpm
 ```
 
 Then launch **FilePilot** from your application menu, or run `filepilot`.
@@ -60,15 +61,15 @@ Then launch **FilePilot** from your application menu, or run `filepilot`.
 ### Any distribution (`.AppImage`)
 
 ```bash
-chmod +x FilePilot_1.0.0_amd64.AppImage
-./FilePilot_1.0.0_amd64.AppImage
+chmod +x FilePilot_1.1.0_amd64.AppImage
+./FilePilot_1.1.0_amd64.AppImage
 ```
 
 If your distribution does not have FUSE 2 installed, either install it
 (`libfuse2` on Debian/Ubuntu, `fuse-libs` on Fedora) or run:
 
 ```bash
-./FilePilot_1.0.0_amd64.AppImage --appimage-extract-and-run
+./FilePilot_1.1.0_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## First run
@@ -116,7 +117,7 @@ sudo apt remove file-pilot
 sudo dnf remove file-pilot
 
 # AppImage
-rm FilePilot_1.0.0_amd64.AppImage
+rm FilePilot_1.1.0_amd64.AppImage
 ```
 
 ## Troubleshooting
@@ -154,7 +155,16 @@ Because Tauri v2 uses WebKitGTK 4.1, the practical baseline is:
 
 Very old releases such as Ubuntu 20.04 and Debian 11 are not supported.
 
+## Updates
+
+The AppImage build supports in-app updates. On startup, FilePilot checks the
+release manifest and offers **Dismiss** or **Install** when a newer version is
+available. After a successful install the app restarts automatically.
+
+The `.deb` and `.rpm` packages do not self-update; install the newer package to
+upgrade.
+
 ## Windows
 
-Windows packaging is planned for a later phase. The workflow is structured so a
-`windows-latest` job can be added without changing the Linux jobs.
+Windows packages are built by the same workflow. See
+[docs/windows.md](windows.md) for install, update, and troubleshooting notes.
