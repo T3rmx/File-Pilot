@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
-import { ApiError, api } from "../lib/api";
+import { ApiError, api, waitForServer } from "../lib/api";
 import type { AuditItem, ServerSettings } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { formatDate, timeAgo } from "../lib/format";
@@ -125,9 +125,19 @@ export function SettingsPage() {
     setRestarting(true);
     try {
       await api.post("/api/system/restart");
-      window.setTimeout(() => {
-        window.location.href = target.toString();
-      }, 2400);
+      // In the desktop shell the supervisor respawns the backend and reloads the
+      // window itself once the new transport answers; in a plain browser we wait
+      // for the server to come back before navigating.
+      const inShell = typeof window !== "undefined" && "__TAURI_INTERNALS" in window;
+      if (inShell) {
+        // The desktop shell respawns the backend and reloads the window itself
+        // once the new transport answers; navigating here would race that reload.
+        return;
+      }
+      if (!(await waitForServer())) {
+        throw new Error("restart_timeout");
+      }
+      window.location.href = target.toString();
     } catch (err) {
       setRestarting(false);
       toast(err instanceof ApiError ? err.detail : t("common.unknownError"), "error");

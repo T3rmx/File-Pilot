@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 
-import { ApiError, api } from "../lib/api";
+import { ApiError, api, waitForServer } from "../lib/api";
 import type { SetupResponse } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useI18n } from "../lib/i18n";
@@ -61,18 +61,23 @@ export function SetupPage() {
   };
 
   const restartNow = async () => {
+    if (!restartInfo) return;
     setRestartError("");
     setRestarting(true);
+    const tls = restartInfo.tls;
     try {
       await api.post("/api/system/restart");
-      window.setTimeout(() => {
-        if (!restartInfo) return;
-        // Keep the current host: the desktop shell and local browsers both
-        // reach the server on the same address after the transport change.
-        const target = new URL(window.location.href);
-        target.protocol = restartInfo.tls === "on" ? "https:" : "http:";
-        window.location.href = target.toString();
-      }, 2200);
+      const target = new URL(window.location.href);
+      target.protocol = tls === "on" ? "https:" : "http:";
+      const inShell = typeof window !== "undefined" && "__TAURI_INTERNALS" in window;
+      if (inShell) {
+        // The desktop shell respawns the backend and reloads the window itself.
+        return;
+      }
+      if (!(await waitForServer())) {
+        throw new Error("restart_timeout");
+      }
+      window.location.href = target.toString();
     } catch (err) {
       setRestarting(false);
       setRestartError(err instanceof ApiError ? err.detail : t("common.unknownError"));

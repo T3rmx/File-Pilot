@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import io
+import ipaddress
 import json
 import mimetypes
+import socket
+import time
 from urllib.parse import urlparse
 
 import segno
@@ -18,20 +21,81 @@ PREVIEW_MIME_PREFIXES = ("image/", "video/", "audio/")
 PREVIEW_MIME_EXACT = {"application/pdf"}
 BLOCKED_PREVIEW_EXT = {".svg", ".svgz", ".html", ".htm", ".xhtml", ".xml", ".js", ".mjs"}
 
+_LAN_CACHE_SECONDS = 30.0
+_lan_cache_at: float = 0.0
+_lan_cache_value: str = "127.0.0.1"
+
+
+def _is_lan_ip(value: str) -> bool:
+    """True for IPv4 addresses a phone on the same network could actually reach."""
+    try:
+        address = ipaddress.ip_address(value.strip())
+    except ValueError:
+        return False
+    if address.version != 4:
+        return False
+    return not address.is_loopback and not address.is_link_local and not address.is_multicast
+
+
+def _is_private_ipv4(value: str) -> bool:
+    """True for RFC1918 addresses (10/8, 172.16/12, 192.168/16)."""
+    try:
+        address = ipaddress.ip_address(value.strip())
+    except ValueError:
+        return False
+    first = int(address) >> 24
+    second = int(address) >> 16 & 0xFF
+    return first == 10 or (first == 192 and second == 168) or (first == 172 and 16 <= second <= 31)
+
+
+def _lan_candidates() -> list[str]:
+    candidates: list[str] = []
+
+    def push(value: str | None) -> None:
+        if value and _is_lan_ip(value) and value not in candidates:
+            candidates.append(value)
+
+    # UDP "connect" probe to a public peer: sends no packets, just picks the
+    # outbound route of the active interface. Falls back to hostname resolution.
+    for target in ("8.8.8.8", "1.1.1.1"):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.settimeout(0.2)
+                sock.connect((target, 80))
+                push(sock.getsockname()[0])
+        except OSError:
+            pass
+    hosts = {socket.gethostname(), socket.getfqdn()}
+    for host in hosts:
+        if not host:
+            continue
+        try:
+            infos = socket.getaddrinfo(host, None, socket.AF_INET, socket.SOCK_STREAM)
+        except OSError:
+            continue
+        for info in infos:
+            push(info[4][0])
+    return candidates
+
 
 def lan_ip_address() -> str:
-    """Best-effort primary LAN address (no packets are sent; UDP connect probe)."""
-    import socket
+    """Best-effort primary LAN address for share URLs.
 
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(0.2)
-        sock.connect(("8.8.8.8", 80))
-        address = sock.getsockname()[0]
-        sock.close()
-        return address
-    except OSError:
-        return "127.0.0.1"
+    Prefers a private (RFC1918) IPv4 of the active interface, tolerates offline
+    hosts by falling back to hostname resolution, and caches the answer briefly
+    so bursts of share-link requests stay cheap.
+    """
+    global _lan_cache_at, _lan_cache_value
+    now = time.monotonic()
+    if now - _lan_cache_at < _LAN_CACHE_SECONDS:
+        return _lan_cache_value
+    candidates = _lan_candidates()
+    address = "127.0.0.1"
+    if candidates:
+        address = next((c for c in candidates if _is_private_ipv4(c)), candidates[0])
+    _lan_cache_at = now
+    _lan_cache_value = address
+    return address
 
 
 def _is_loopback(url: str) -> bool:

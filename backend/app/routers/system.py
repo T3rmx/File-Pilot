@@ -52,7 +52,7 @@ def restart_server(
         actor_name=user.username,
         request=request,
     )
-    restart_process()
+    restart_process(request.app.state.settings.data_dir)
     return {"ok": True, "restarting": True}
 
 
