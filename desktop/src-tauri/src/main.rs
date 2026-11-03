@@ -28,12 +28,13 @@ fn data_dir(app: &AppHandle) -> PathBuf {
 fn sidecar_path() -> PathBuf {
     let exe = std::env::current_exe().expect("FilePilot executable path");
     let dir = exe.parent().expect("FilePilot executable directory");
-    let plain = dir.join("filepilot-backend");
+    let suffix = std::env::consts::EXE_SUFFIX;
+    let plain = dir.join(format!("filepilot-backend{suffix}"));
     if plain.is_file() {
         return plain;
     }
     let triple = option_env!("TAURI_ENV_TARGET_TRIPLE").unwrap_or("x86_64-unknown-linux-gnu");
-    dir.join(format!("filepilot-backend-{triple}"))
+    dir.join(format!("filepilot-backend-{triple}{suffix}"))
 }
 
 fn port_open() -> bool {
@@ -184,7 +185,26 @@ fn stop_child(child: &mut Child) {
     let _ = child.wait();
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn stop_child(child: &mut Child) {
+    use std::os::windows::process::CommandExt;
+
+    // PyInstaller's one-file bootloader owns the actual server process, so kill
+    // the whole tree instead of leaving the backend bound to port 6969.
+    let pid = child.id().to_string();
+    let killed = Command::new("taskkill")
+        .args(["/PID", pid.as_str(), "/T", "/F"])
+        .creation_flags(0x0800_0000)
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false);
+    if !killed {
+        let _ = child.kill();
+    }
+    let _ = child.wait();
+}
+
+#[cfg(not(any(unix, windows)))]
 fn stop_child(child: &mut Child) {
     let _ = child.kill();
     let _ = child.wait();
@@ -199,7 +219,7 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let handle = app.handle().clone();
-            let window = WebviewWindowBuilder::new(
+            let builder = WebviewWindowBuilder::new(
                 app,
                 "main",
                 WebviewUrl::App("index.html".into()),
@@ -215,8 +235,16 @@ fn main() {
                 scheme == "tauri"
                     || ((scheme == "http" || scheme == "https")
                         && (host == "127.0.0.1" || host == "localhost"))
-            })
-            .build()?;
+            });
+
+            // WebView2 rejects the local self-signed certificate by default.
+            #[cfg(windows)]
+            let builder = builder.additional_browser_args(
+                "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
+                 --ignore-certificate-errors",
+            );
+
+            let window = builder.build()?;
 
             trust_local_certificate(&window);
 
