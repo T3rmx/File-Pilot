@@ -194,7 +194,7 @@ fn supervise(app: AppHandle) {
                 ready_since = Some(now);
             }
             let settled = ready_since
-                .map(|at| now.duration_since(*at).as_millis() as u64 >= 1500)
+                .map(|at| now.duration_since(at).as_millis() as u64 >= 1500)
                 .unwrap_or(false);
             if settled && !navigated {
                 navigated = true;
