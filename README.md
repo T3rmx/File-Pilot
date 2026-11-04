@@ -7,7 +7,7 @@ Secure, local-first file sharing for your LAN — files stay on the host device,
 - **Security:** AES-256-GCM share tokens, Argon2id password hashing, per-share passwords, download/upload limits, expiry + instant revoke, rate limiting, audit log, security headers, attachment-only downloads, safe inline preview allowlist, path-traversal + symlink containment, filename sanitisation, CSRF protection, same-origin enforcement.
 - **Access control:** Admins, Members, and Viewers. Manage users and roles from **Settings → Users & roles**.
 - **TLS:** Choose HTTP or HTTPS at first-run setup. Switch later in **Settings → Connection security** (auto-restarts when changed).
-- **Desktop:** Tauri v2 shell with a bundled PyInstaller backend sidecar. Linux (`.deb`, `.rpm`, `.AppImage`) and Windows (`.exe`, `.msi`) packages are built by GitHub Actions from the `dev`, `beta`, and `rel` branches — see [docs/linux.md](docs/linux.md), [docs/windows.md](docs/windows.md), and [docs/releasing.md](docs/releasing.md).
+- **Desktop:** Tauri v2 shell with a bundled PyInstaller backend sidecar. Linux (`.deb`, `.rpm`, `.AppImage`) and Windows (`.exe`, `.msi`) packages are built by GitHub Actions from the `beta` and `rel` branches — see [docs/linux.md](docs/linux.md), [docs/windows.md](docs/windows.md), and [docs/releasing.md](docs/releasing.md).
 
 ## Quick start (development)
 
@@ -104,7 +104,7 @@ FilePilot also runs as a desktop app on Linux and Windows. It bundles its own ba
 | `.exe` (NSIS) | Windows 10/11, normal installation and in-app updates |
 | `.msi` | Windows 10/11, managed deployment |
 
-Packages are built **only** by GitHub Actions — no local Rust or packaging tools needed. A normal push to `dev` never builds packages.
+Packages are built **only** by GitHub Actions — no local Rust or packaging tools needed. A normal push to `dev` never runs Actions; pushes to `beta` build test packages and pushes to `rel` publish the stable release.
 
 Linux data lives in `~/.local/share/FilePilot`; Windows data lives in `%APPDATA%\FilePilot`. Uninstalling the app does not delete that folder.
 
@@ -116,11 +116,11 @@ FilePilot uses three long-lived branches:
 
 | Branch | Purpose | What a push does |
 | --- | --- | --- |
-| `dev` | Development | Tests, lint, and the web type-check. No packages, tags, or releases. |
+| `dev` | Development | **No Actions run.** Run tests, lint, and the web type-check locally. |
 | `beta` | Integration testing | Tests plus Linux (`.deb`, `.rpm`, `.AppImage`) and Windows (`.exe`, `.msi`) packages, uploaded as downloadable Actions artifacts. Nothing is published. |
 | `rel` | Production | Calculates the next version from Conventional Commits, updates every version file, builds and signs all packages, creates `vX.Y.Z`, and publishes the stable GitHub Release marked Latest. |
 
-The normal flow is `dev → beta → rel`, through pull requests or merges. `rel` is the default branch and the only branch allowed to publish.
+The normal flow is `dev → beta → rel`, through pull requests or merges. `rel` is the default branch and the only branch allowed to publish. Pushes to `dev` intentionally start no workflow; merge to `beta` when you want the CI build.
 
 ### Automatic versioning
 
@@ -175,7 +175,7 @@ If a build fails, nothing is published. Re-running the failed workflow is safe: 
 
 ### Verification builds
 
-**Actions → CI/CD → Run workflow** performs a verification build. Run it on `dev` for checks only, on `beta` for test packages, or on `rel` for the full release build with the calculated version. It never commits, tags, or publishes, so it is safe for testing packaging changes.
+**Actions → CI/CD → Run workflow** performs a verification build. Run it on `beta` for test packages or on `rel` for the full release build with the calculated version. It never commits, tags, or publishes, so it is safe for testing packaging changes. `dev` does not run Actions.
 
 Full details, recovery steps, and limitations are in [docs/releasing.md](docs/releasing.md).
 
@@ -196,7 +196,7 @@ desktop/   Tauri v2 desktop shell (src-tauri/, loader/) and app icons
 packaging/ PyInstaller entry point and spec for the backend sidecar
 scripts/   Version sync (scripts/version.py) and Conventional Commits detection
 docs/      Linux and Windows package guides, plus docs/releasing.md
-.github/   CI/CD workflow: checks, beta artifacts, and automatic stable releases
+.github/   CI/CD workflow: beta test artifacts and automatic stable releases
 legacy/    The original Flask app, kept for reference / import source
 shared/    Legacy demo content (gitignored) — imported once on first run
 data/      Runtime data (gitignored): db, uploads, certs, logs, secret key, runtime.json (saved TLS mode)

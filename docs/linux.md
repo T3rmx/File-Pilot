@@ -17,8 +17,8 @@ web UI in a desktop window.
 All packages are built by GitHub Actions. Nothing needs to be compiled on your
 machine.
 
-- **Development checks:** push to `dev`. Tests, lint, and the web type-check run;
-  no packages are built.
+- **Development:** pushes to `dev` do **not** run Actions. Run the backend tests,
+  lint, and web type-check locally before merging.
 - **Beta build:** push to `beta` (normally by merging `dev`). The workflow builds
   the `.deb`, `.rpm`, and `.AppImage` packages and uploads them as the
   `filepilot-linux-x86_64-<version>` artifact. Beta builds never publish a

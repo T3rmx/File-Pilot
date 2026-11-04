@@ -4,7 +4,7 @@ FilePilot uses three long-lived branches and fully automatic semantic versioning
 
 | Branch | Purpose | Push behaviour |
 | --- | --- | --- |
-| `dev` | Development | Tests, lint, and the web type-check. No packages. |
+| `dev` | Development | **No Actions run.** Run checks locally. |
 | `beta` | Integration testing | Tests plus Linux and Windows packages, uploaded as Actions artifacts. Nothing is published. |
 | `rel` | Production | Calculates the next version, updates every manifest, builds and signs all packages, creates `vX.Y.Z`, and publishes the stable release. |
 
@@ -86,7 +86,8 @@ The tag is created only after all builds and signing succeed. If an upload or ve
 
 ## Beta builds
 
-Merge `dev` into `beta` and push:
+Pushes to `dev` do not start Actions. Run the checks locally, then merge `dev`
+into `beta` and push:
 
 ```bash
 git switch beta
@@ -126,13 +127,12 @@ Because the release is published as Latest and contains `latest.json`, users on 
 **Actions → CI/CD → Run workflow** performs a verification build. The selected
 branch decides what runs:
 
-- `dev` runs the tests, lint, and web type-check only.
 - `beta` runs the tests and builds the Linux and Windows test packages.
 - `rel` calculates the next version with the same Conventional Commits logic and
   runs the full release build.
 
-Every manual run **never** commits, tags, creates a release, or publishes updater
-metadata.
+`dev` does not run Actions; select `beta` or `rel`. Every manual run **never**
+commits, tags, creates a release, or publishes updater metadata.
 
 Use this to test packaging or workflow changes without creating a production release. Normal releases still only require a push to `rel`.
 
@@ -146,6 +146,7 @@ Use this to test packaging or workflow changes without creating a production rel
 
 ## Limitations
 
+- `dev` pushes intentionally start no Actions. Run the local checks before merging to `beta`; the first automated gate is the `beta` build.
 - Package builds (especially Windows/Tauri) can only be validated in GitHub Actions; a local machine without the Rust/WebKit toolchain cannot reproduce them.
 - The first automated release uses the existing stable tag as its baseline. The baseline tag must exist and be an ancestor of `rel`.
 - Only Linux AppImage and Windows NSIS are used by the Tauri updater. The `.deb`, `.rpm`, and `.msi` packages are release assets but are not in-app update targets.
