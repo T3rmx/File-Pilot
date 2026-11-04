@@ -15,19 +15,19 @@ The NSIS installer runs per user and does not require administrator rights.
 All packages are built by GitHub Actions on `windows-latest`. Nothing needs to
 be compiled on your machine.
 
-- **Test build:** GitHub → **Actions** → **Desktop packages** → **Run
-  workflow**, channel `artifacts`. Download the `filepilot-windows-x86_64`
-  artifact when it finishes.
-- **Beta build:** push to the `beta` branch. The workflow stamps
-  `<VERSION>-beta.<run>`, builds the NSIS setup, and publishes a prerelease
-  automatically.
-- **Final release:** push a `vX.Y.Z` tag from the `release` branch. The same
-  workflow builds the Linux and Windows packages (NSIS and MSI), then waits for
-  approval on the `release` environment before publishing the final GitHub
-  Release.
+- **Development checks:** push to `dev`. Tests, lint, and the web type-check run;
+  no packages are built.
+- **Beta build:** push to `beta` (normally by merging `dev`). The workflow builds
+  the NSIS setup and MSI and uploads them as the
+  `filepilot-windows-x86_64-<version>` artifact. Beta builds never publish a
+  GitHub Release or updater metadata.
+- **Stable release:** merge `beta` into `rel` and push. The workflow calculates
+  the next version from Conventional Commits, builds and signs every package,
+  creates the `vX.Y.Z` tag, and publishes the stable GitHub Release. No manual
+  tag or approval is required.
 
-The version stamped into the installers comes from `VERSION`. Change it with
-`python scripts/version.py bump patch` and commit it before tagging. See
+`VERSION` and every package manifest are synchronized automatically on `rel`.
+Do not edit them or create release tags by hand. See
 [releasing.md](releasing.md) for the full flow.
 
 ## Install
