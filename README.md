@@ -175,7 +175,7 @@ If a build fails, nothing is published. Re-running the failed workflow is safe: 
 
 ### Verification builds
 
-**Actions → CI/CD → Run workflow** performs a verification build. It runs the same tests and package builds with the calculated version but never commits, tags, or publishes. Use it to test packaging changes without creating a release.
+**Actions → CI/CD → Run workflow** performs a verification build. Run it on `dev` for checks only, on `beta` for test packages, or on `rel` for the full release build with the calculated version. It never commits, tags, or publishes, so it is safe for testing packaging changes.
 
 Full details, recovery steps, and limitations are in [docs/releasing.md](docs/releasing.md).
 

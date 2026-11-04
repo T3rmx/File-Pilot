@@ -11,8 +11,9 @@ name: CI/CD
 #         creates vX.Y.Z at the exact built commit, and publishes the release
 #         (and latest.json) as the latest stable release.
 #
-# A manual "Run workflow" is a verification build only. It never tags or
-# publishes. Normal releases need only a push to rel.
+# A manual "Run workflow" is a verification build only. It never commits, tags,
+# or publishes. Run it on dev for checks, on beta for test packages, and on rel
+# for the full release build. Normal releases need only a push to rel.
 
 on:
   push:
@@ -93,10 +94,9 @@ jobs:
           dry_run=false
           needs_stamp=false
 
-          if [ "$EVENT_NAME" = "workflow_dispatch" ] || [ "$REF_NAME" = "rel" ]; then
+          read_detection() {
             python scripts/conventional_version.py detect \
               --json-out version.json
-
             release="$(jq -r '.release' version.json)"
             bump="$(jq -r '.bump // ""' version.json)"
             previous_tag="$(jq -r '.previous_tag' version.json)"
@@ -104,13 +104,27 @@ jobs:
             needs_commit="$(jq -r '.needs_commit' version.json)"
             version_matches_tag="$(jq -r '.version_matches_tag' version.json)"
             release_commit_count="$(jq -r '.release_commit_count' version.json)"
+          }
 
-            if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-              dry_run=true
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            # Manual runs are verification only. They never commit, tag, or
+            # publish. The branch selects what gets verified.
+            dry_run=true
+            if [ "$REF_NAME" = "rel" ]; then
+              read_detection
               should_build=true
               needs_stamp="$needs_commit"
               echo "Verification run: calculated $version (release=$release, commits=$release_commit_count). Nothing will be published."
-            elif [ "$release" != "true" ]; then
+            elif [ "$REF_NAME" = "beta" ]; then
+              should_build=true
+              echo "Beta verification run: building test packages with VERSION $version. Nothing will be published."
+            else
+              echo "Development verification run: running checks only."
+            fi
+          elif [ "$REF_NAME" = "rel" ]; then
+            read_detection
+
+            if [ "$release" != "true" ]; then
               if [ "$version_matches_tag" != "true" ]; then
                 echo "::error::VERSION ($current) differs from the latest stable tag ($previous_tag) but there are no feat/fix/BREAKING commits. Refusing to guess a version."
                 exit 1

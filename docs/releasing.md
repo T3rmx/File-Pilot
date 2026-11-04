@@ -123,12 +123,16 @@ Because the release is published as Latest and contains `latest.json`, users on 
 
 ## Verification builds (never publish)
 
-**Actions → CI/CD → Run workflow** performs a verification build. It:
+**Actions → CI/CD → Run workflow** performs a verification build. The selected
+branch decides what runs:
 
-- calculates the next version with the same Conventional Commits logic;
-- runs the same tests and package builds;
-- uploads the same Linux and Windows artifacts for inspection;
-- **never** commits, tags, creates a release, or publishes updater metadata.
+- `dev` runs the tests, lint, and web type-check only.
+- `beta` runs the tests and builds the Linux and Windows test packages.
+- `rel` calculates the next version with the same Conventional Commits logic and
+  runs the full release build.
+
+Every manual run **never** commits, tags, creates a release, or publishes updater
+metadata.
 
 Use this to test packaging or workflow changes without creating a production release. Normal releases still only require a push to `rel`.
 
