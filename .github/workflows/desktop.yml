@@ -320,17 +320,29 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npx tauri build --bundles deb,rpm,appimage
+          CHANNEL: ${{ needs.meta.outputs.channel }}
+        run: |
+          if [ "$CHANNEL" = "release" ]; then
+            npx tauri build --bundles deb,rpm,appimage
+          else
+            # RPM cannot encode a semver prerelease (1.2.0-beta.1). Beta
+            # testers use the .deb or AppImage; final releases include RPM.
+            npx tauri build --bundles deb,appimage
+          fi
 
       - name: Collect packages and checksums
         run: |
+          shopt -s nullglob
           mkdir -p dist-linux
           cp desktop/src-tauri/target/release/bundle/deb/*.deb dist-linux/
-          cp desktop/src-tauri/target/release/bundle/rpm/*.rpm dist-linux/
+          for rpm in desktop/src-tauri/target/release/bundle/rpm/*.rpm; do
+            cp "$rpm" dist-linux/
+          done
           cp desktop/src-tauri/target/release/bundle/appimage/*.AppImage dist-linux/
           cp desktop/src-tauri/target/release/bundle/appimage/*.AppImage.sig dist-linux/
           cd dist-linux
-          sha256sum *.deb *.rpm *.AppImage *.sig > SHA256SUMS.txt
+          files=(*.deb *.rpm *.AppImage *.sig)
+          sha256sum "${files[@]}" > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Upload Linux packages
