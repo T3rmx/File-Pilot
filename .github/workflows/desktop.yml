@@ -320,15 +320,18 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          CHANNEL: ${{ needs.meta.outputs.channel }}
+          VERSION: ${{ needs.meta.outputs.version }}
         run: |
-          if [ "$CHANNEL" = "release" ]; then
-            npx tauri build --bundles deb,rpm,appimage
-          else
-            # RPM cannot encode a semver prerelease (1.2.0-beta.1). Beta
-            # testers use the .deb or AppImage; final releases include RPM.
-            npx tauri build --bundles deb,appimage
-          fi
+          case "$VERSION" in
+            *-*)
+              # RPM cannot encode a semver prerelease (1.2.0-beta.1). Beta
+              # testers use the .deb or AppImage.
+              npx tauri build --bundles deb,appimage
+              ;;
+            *)
+              npx tauri build --bundles deb,rpm,appimage
+              ;;
+          esac
 
       - name: Collect packages and checksums
         run: |
@@ -417,13 +420,13 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          CHANNEL: ${{ needs.meta.outputs.channel }}
+          VERSION: ${{ needs.meta.outputs.version }}
         run: |
-          # MSI/WiX only for final releases; beta testers use the NSIS setup.
-          if ($env:CHANNEL -eq "release") {
-            npx tauri build --bundles nsis,msi
-          } else {
+          # MSI/WiX is only for plain versions; beta testers use the NSIS setup.
+          if ($env:VERSION -like "*-*") {
             npx tauri build --bundles nsis
+          } else {
+            npx tauri build --bundles nsis,msi
           }
 
       - name: Collect packages and checksums
