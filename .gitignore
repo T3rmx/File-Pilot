@@ -2,6 +2,9 @@ __pycache__/
 *.py[cod]
 .venv/
 data/
+/node_modules/
+/package.json
+/package-lock.json
 web/node_modules/
 web/dist/
 desktop/node_modules/

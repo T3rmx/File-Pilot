@@ -5,15 +5,17 @@
 ends up inside a package (backend, web, desktop, Tauri, PyInstaller) is kept in
 sync from it, so a release can never ship mismatched version numbers.
 
+Normal releases are automatic: a push to ``rel`` calculates the next version
+from Conventional Commits and runs ``set`` in CI before the bot version commit.
+``show``, ``check``, ``set`` and ``bump`` remain available for inspection and
+emergency recovery.
+
 Usage::
 
     python scripts/version.py show
     python scripts/version.py check
     python scripts/version.py set 1.2.0
     python scripts/version.py bump patch|minor|major
-
-``check`` is run in CI. ``set``/``bump`` are what you run locally before
-committing a new release line.
 """
 
 from __future__ import annotations

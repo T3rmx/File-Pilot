@@ -1,147 +1,149 @@
 # Releasing FilePilot
 
-FilePilot uses three long-lived branches and one version file. The workflow never
-builds on a normal push to `main`.
+FilePilot uses three long-lived branches and fully automatic semantic versioning.
 
 | Branch | Purpose | Push behaviour |
 | --- | --- | --- |
-| `main` | Development and fast iteration | No packages are built |
-| `beta` | Pre-release testing | Builds `<VERSION>-beta.<run>` and publishes a prerelease automatically |
-| `release` | Stable channel | No build on push; final releases come from `vX.Y.Z` tags |
+| `dev` | Development | Tests, lint, and the web type-check. No packages. |
+| `beta` | Integration testing | Tests plus Linux and Windows packages, uploaded as Actions artifacts. Nothing is published. |
+| `rel` | Production | Calculates the next version, updates every manifest, builds and signs all packages, creates `vX.Y.Z`, and publishes the stable release. |
 
-`VERSION` at the repository root is the only version source of truth. The
-workflow refuses to build if the tag, the requested version, and `VERSION`
-disagree.
+`rel` is the repository's default branch and the **only** branch that can publish a stable release. The normal flow is:
 
-## Version management
-
-Always change versions with the helper script, never by editing manifests:
-
-```bash
-python scripts/version.py show          # current version
-python scripts/version.py bump patch    # 1.2.0 -> 1.2.1
-python scripts/version.py bump minor    # 1.2.0 -> 1.3.0
-python scripts/version.py bump major    # 1.2.0 -> 2.0.0
-python scripts/version.py set 2.1.0     # exact version
-python scripts/version.py check         # verify every manifest
+```text
+dev  ->  beta  ->  rel
 ```
 
-`set` and `bump` update all of these together:
+Changes move forward with pull requests or merges. You do not edit `VERSION`, package manifests, Git tags, or release names for a normal release.
 
-- `VERSION`
-- `backend/pyproject.toml`
-- `backend/app/__init__.py`
-- `web/package.json` and `web/package-lock.json`
-- `desktop/package.json` and `desktop/package-lock.json`
-- `desktop/src-tauri/tauri.conf.json`
-- `desktop/src-tauri/Cargo.toml`
-- `desktop/src-tauri/Cargo.lock` (when it exists)
+## Automatic version calculation
 
-CI runs `version.py check` before building, so a forgotten manifest fails the
-run instead of shipping a mismatched version.
+The latest stable tag in the form `vX.Y.Z` is the baseline. Prerelease tags such as `v1.2.0-beta.4` are ignored, and the existing `VERSION` file is never assumed to be the latest published version.
 
-## Beta release
+The workflow reads every commit after the baseline tag and applies Conventional Commits rules:
 
-Beta builds are automatic and need no approval.
+| Commit | Bump |
+| --- | --- |
+| `fix: repair transfer bug` | patch |
+| `feat: add device discovery` | minor |
+| `feat!: redesign networking protocol` | major |
+| `fix: change protocol` with `BREAKING CHANGE: ...` in the body | major |
+
+The highest required bump wins. For example, if a range contains a `fix:` and a `feat:`, the release is a minor bump.
+
+These commits do **not** trigger a release on their own:
+
+- `docs:`
+- `ci:`
+- `chore:`
+- `test:`
+- `build:`
+- `style:`
+- `refactor:`
+- `perf:`
+
+Merge commits and the workflow's own `chore(release): vX.Y.Z [skip ci]` commit are ignored. If no `fix:`, `feat:`, or breaking commit exists, the workflow skips the release instead of guessing a version.
+
+Example: with `v1.1.0` as the latest stable tag and a `feat:` commit since then, the next version is `1.2.0`.
+
+You can inspect the calculation locally:
 
 ```bash
-git switch main
-git pull
+python scripts/conventional_version.py detect
+python scripts/conventional_version.py latest-tag
+python scripts/conventional_version.py notes --from-tag v1.1.0 --to-ref HEAD
+```
+
+## What happens on a push to `rel`
+
+1. The workflow verifies `VERSION` is a plain `X.Y.Z` and that every manifest is synchronized.
+2. It finds the latest stable tag and reads commits since then.
+3. It calculates the next semantic version.
+4. If the tag or GitHub Release already exists, the run stops before building.
+5. It updates every version reference:
+   - `VERSION`
+   - `backend/pyproject.toml`
+   - `backend/app/__init__.py`
+   - `web/package.json` and `web/package-lock.json`
+   - `desktop/package.json` and `desktop/package-lock.json`
+   - `desktop/src-tauri/tauri.conf.json`
+   - `desktop/src-tauri/Cargo.toml`
+   - `desktop/src-tauri/Cargo.lock` when it is tracked
+6. If the version changed, it creates an automated commit as `github-actions[bot]`:
+
+   ```text
+   chore(release): v1.2.0 [skip ci]
+   ```
+
+7. Tests, lint, and the web build run against that exact commit.
+8. Linux (`.deb`, `.rpm`, `.AppImage`) and Windows (`.exe`, `.msi`) packages are built.
+9. Tauri signs the updater artifacts with `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+10. A draft GitHub Release is created at the exact built commit, and every asset is uploaded, including `latest.json` and `SHA256SUMS.txt`.
+11. The tag target and complete asset list are verified.
+12. The release is published, marked **Latest**, and `latest.json` becomes the stable updater manifest.
+
+The tag is created only after all builds and signing succeed. If an upload or verification fails, the draft and tag are removed so the release is never visible in an incomplete state and a retry is safe.
+
+## Beta builds
+
+Merge `dev` into `beta` and push:
+
+```bash
 git switch beta
-git merge main
+git merge dev
 git push origin beta
 ```
 
-The workflow:
+The workflow runs the tests, builds the web UI, and produces:
 
-1. reads `VERSION` (for example `1.2.0`);
-2. stamps `1.2.0-beta.<run_number>` into every manifest;
-3. builds Linux (`.deb`, `.AppImage`) and Windows (NSIS `.exe`);
-4. publishes a GitHub **prerelease** tagged `v1.2.0-beta.<run_number>`.
+- Linux: `.deb`, `.rpm`, `.AppImage`, plus the AppImage updater signature
+- Windows: NSIS `.exe` and `.msi`, plus the setup updater signature
 
-RPM and MSI packages are only produced for plain versions (final releases),
-because RPM cannot encode a semver prerelease such as `1.2.0-beta.10`. Beta
-testers on Fedora/RHEL can use the AppImage, and Windows testers use the NSIS
-setup.
+The packages are available as `filepilot-linux-x86_64-<version>` and `filepilot-windows-x86_64-<version>` in the workflow run. Beta builds use the plain version from `VERSION`, which is why RPM and MSI are supported. They never create a tag, GitHub Release, or stable updater manifest.
 
-Prereleases are never returned by `releases/latest`, so the stable in-app
-updater ignores them.
+## Publishing a stable release
 
-## Final release
-
-A final release is the "end version" and requires approval.
+After testing the beta artifacts:
 
 ```bash
-# 1. choose the next version and commit it on main
-python scripts/version.py bump minor
-git add VERSION backend web desktop
-git commit -m "chore: release 1.3.0"
-git push origin main
-
-# 2. promote the same commit through the channels
-git switch beta
-git merge main
-git push origin beta
-
-git switch release
+git switch rel
 git merge beta
-git push origin release
+git push origin rel
 ```
 
-Then publish with either option:
+That is the entire production release action. There is no manual dispatch, tag creation, version edit, or deployment approval.
 
-**Option A — tag push (recommended)**
+The in-app updater endpoint is:
 
-```bash
-git switch release
-git tag v1.3.0
-git push origin v1.3.0
+```text
+https://github.com/T3rmx/File-Pilot/releases/latest/download/latest.json
 ```
 
-**Option B — manual run**
+Because the release is published as Latest and contains `latest.json`, users on the previous stable version (for example `1.1.0`) discover the new version (for example `1.2.0`) on their next startup check.
 
-GitHub → **Actions** → **Desktop packages** → **Run workflow**:
+## Verification builds (never publish)
 
-- branch: `release`
-- channel: `release`
-- version: leave empty to use `VERSION` (or type the same value as confirmation)
+**Actions → CI/CD → Run workflow** performs a verification build. It:
 
-Both options build every platform, then the **Publish final release** job waits
-for approval on the `release` environment. Approve it to publish. The release is
-marked as latest, and its `latest.json` becomes the manifest the in-app updater
-reads.
+- calculates the next version with the same Conventional Commits logic;
+- runs the same tests and package builds;
+- uploads the same Linux and Windows artifacts for inspection;
+- **never** commits, tags, creates a release, or publishes updater metadata.
 
-> If you push a tag that does not match `VERSION`, the `meta` job fails before
-> anything is built. Fix it with `python scripts/version.py set <tag version>`,
-> commit, move the branch, and push the tag again.
+Use this to test packaging or workflow changes without creating a production release. Normal releases still only require a push to `rel`.
 
-## Test build (no publish)
+## Recovery
 
-Use this to check packaging without creating a release:
+- **Build failed:** nothing was published. Fix the problem and push the fix; re-running the failed workflow is also safe. The version commit is reused if `VERSION` already matches the calculated version.
+- **Upload failed:** the draft release and tag are removed automatically, so the next run can publish cleanly.
+- **Tag or release already exists:** the workflow refuses to overwrite or republish it. Delete the incomplete tag/release intentionally before retrying.
+- **`VERSION` is ahead but there are no release commits:** the workflow fails instead of guessing. Restore `VERSION` to the latest stable tag or add the missing `fix:`/`feat:`/breaking commit.
+- **Workflow was cancelled after the draft was created:** a draft release or tag may remain. Delete it from the GitHub Releases/Tags UI before retrying.
 
-GitHub → **Actions** → **Desktop packages** → **Run workflow**:
+## Limitations
 
-- branch: any branch
-- channel: `artifacts`
-
-Download `filepilot-release-<version>` from the run. Linux and Windows artifacts
-are also available separately. Nothing is published.
-
-## What the workflow runs
-
-| Job | Runs when | Publishes |
-| --- | --- | --- |
-| `meta` | Every run | Resolves channel, version, and tag |
-| `checks` | Every run | Tests, lint, web build, version check |
-| `linux` | Every run | Linux bundles + checksums |
-| `windows` | Every run | NSIS (and MSI for final releases) + checksums |
-| `release-artifacts` | Every run | Combined artifact and `latest.json` |
-| `publish-beta` | beta channel | GitHub prerelease, automatic |
-| `publish-release` | release channel | Final GitHub Release, approval required |
-
-## Current state
-
-- `v1.1.0` is the last published final release.
-- `VERSION` is `1.2.0`, the next development line.
-- `main` is the development branch.
-- `beta` and `release` are created from `main` and move forward by merging.
+- Package builds (especially Windows/Tauri) can only be validated in GitHub Actions; a local machine without the Rust/WebKit toolchain cannot reproduce them.
+- The first automated release uses the existing stable tag as its baseline. The baseline tag must exist and be an ancestor of `rel`.
+- Only Linux AppImage and Windows NSIS are used by the Tauri updater. The `.deb`, `.rpm`, and `.msi` packages are release assets but are not in-app update targets.
+- If GitHub Actions is unavailable or the signing secrets are missing, no release is published.
+- An interrupted run can leave a draft release or tag that needs manual cleanup, as described above.

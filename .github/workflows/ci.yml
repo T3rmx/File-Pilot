@@ -1,0 +1,638 @@
+name: CI/CD
+
+# Branch model
+# ------------
+#   dev   development. Tests, lint, and the web type-check run here. No packages.
+#   beta  integration testing. Tests plus Linux/Windows packages are uploaded as
+#         downloadable workflow artifacts. Nothing is published.
+#   rel   production. Conventional Commits since the latest stable vX.Y.Z tag
+#         decide the next version. The workflow updates every manifest, commits
+#         that change as the GitHub Actions bot, builds and signs every package,
+#         creates vX.Y.Z at the exact built commit, and publishes the release
+#         (and latest.json) as the latest stable release.
+#
+# A manual "Run workflow" is a verification build only. It never tags or
+# publishes. Normal releases need only a push to rel.
+
+on:
+  push:
+    branches:
+      - dev
+      - beta
+      - rel
+  workflow_dispatch:
+
+# rel releases must never overlap or be cancelled halfway through. Other
+# branches may cancel an older run for the same branch.
+concurrency:
+  group: filepilot-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/rel' }}
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "22"
+
+jobs:
+  prepare:
+    name: Resolve release version
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    outputs:
+      branch: ${{ steps.resolve.outputs.branch }}
+      version: ${{ steps.resolve.outputs.version }}
+      sha: ${{ steps.resolve.outputs.sha }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      previous_tag: ${{ steps.resolve.outputs.previous_tag }}
+      bump: ${{ steps.resolve.outputs.bump }}
+      should_build: ${{ steps.resolve.outputs.should_build }}
+      should_release: ${{ steps.resolve.outputs.should_release }}
+      dry_run: ${{ steps.resolve.outputs.dry_run }}
+      needs_stamp: ${{ steps.resolve.outputs.needs_stamp }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Resolve version and release intent
+        id: resolve
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          ORIGINAL_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          current="$(python scripts/version.py show)"
+          case "$current" in
+            *-*)
+              echo "::error::VERSION must be a plain X.Y.Z version (found $current)"
+              exit 1
+              ;;
+          esac
+          python scripts/version.py check
+
+          version="$current"
+          sha="$ORIGINAL_SHA"
+          tag=""
+          previous_tag=""
+          bump=""
+          should_build=false
+          should_release=false
+          dry_run=false
+          needs_stamp=false
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] || [ "$REF_NAME" = "rel" ]; then
+            python scripts/conventional_version.py detect \
+              --json-out version.json
+
+            release="$(jq -r '.release' version.json)"
+            bump="$(jq -r '.bump // ""' version.json)"
+            previous_tag="$(jq -r '.previous_tag' version.json)"
+            version="$(jq -r '.next_version' version.json)"
+            needs_commit="$(jq -r '.needs_commit' version.json)"
+            version_matches_tag="$(jq -r '.version_matches_tag' version.json)"
+            release_commit_count="$(jq -r '.release_commit_count' version.json)"
+
+            if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+              dry_run=true
+              should_build=true
+              needs_stamp="$needs_commit"
+              echo "Verification run: calculated $version (release=$release, commits=$release_commit_count). Nothing will be published."
+            elif [ "$release" != "true" ]; then
+              if [ "$version_matches_tag" != "true" ]; then
+                echo "::error::VERSION ($current) differs from the latest stable tag ($previous_tag) but there are no feat/fix/BREAKING commits. Refusing to guess a version."
+                exit 1
+              fi
+              echo "::notice::No release-worthy commits since $previous_tag; skipping the release."
+            else
+              tag="v$version"
+              should_build=true
+              should_release=true
+
+              if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+                echo "::error::Tag $tag already exists. Refusing to overwrite or republish it."
+                exit 1
+              fi
+              if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+                echo "::error::Release $tag already exists. Refusing to overwrite or republish it."
+                exit 1
+              fi
+
+              if [ "$needs_commit" = "true" ]; then
+                python scripts/version.py set "$version"
+                python scripts/version.py check
+                git add \
+                  VERSION \
+                  backend/pyproject.toml \
+                  backend/app/__init__.py \
+                  web/package.json \
+                  web/package-lock.json \
+                  desktop/package.json \
+                  desktop/package-lock.json \
+                  desktop/src-tauri/tauri.conf.json \
+                  desktop/src-tauri/Cargo.toml
+                if git ls-files --error-unmatch desktop/src-tauri/Cargo.lock >/dev/null 2>&1; then
+                  git add desktop/src-tauri/Cargo.lock
+                fi
+                if git diff --cached --quiet; then
+                  echo "::error::A new version was calculated but no files changed."
+                  exit 1
+                fi
+                git commit -m "chore(release): v$version [skip ci]"
+                git push origin "HEAD:$REF_NAME"
+                sha="$(git rev-parse HEAD)"
+                echo "Created automated version commit $sha for v$version."
+              else
+                python scripts/version.py check
+                sha="$(git rev-parse HEAD)"
+                echo "VERSION already equals $version; no version commit is needed."
+              fi
+            fi
+          elif [ "$REF_NAME" = "beta" ]; then
+            should_build=true
+            echo "Beta branch: building test packages with VERSION $version."
+          else
+            echo "Development branch: running checks only."
+          fi
+
+          {
+            echo "branch=$REF_NAME"
+            echo "version=$version"
+            echo "sha=$sha"
+            echo "tag=$tag"
+            echo "previous_tag=$previous_tag"
+            echo "bump=$bump"
+            echo "should_build=$should_build"
+            echo "should_release=$should_release"
+            echo "dry_run=$dry_run"
+            echo "needs_stamp=$needs_stamp"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "branch=$REF_NAME version=$version sha=$sha tag=${tag:-none} build=$should_build release=$should_release dry_run=$dry_run"
+
+  checks:
+    name: Tests and lint
+    needs: prepare
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            packaging/requirements-build.txt
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install "pytest>=8" "httpx>=0.27" "ruff>=0.6"
+
+      - name: Stamp verification version
+        if: needs.prepare.outputs.needs_stamp == 'true'
+        run: python scripts/version.py set "${{ needs.prepare.outputs.version }}"
+
+      - name: Check version manifests
+        run: python scripts/version.py check
+
+      - name: Backend tests
+        working-directory: backend
+        run: python -m pytest -q
+
+      - name: Backend lint
+        working-directory: backend
+        run: python -m ruff check app tests
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Type-check web UI
+        working-directory: web
+        run: npm run lint
+
+      - name: Build web UI
+        if: needs.prepare.outputs.should_build == 'true'
+        working-directory: web
+        run: npm run build
+
+      - name: Upload built web UI
+        if: needs.prepare.outputs.should_build == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+          if-no-files-found: error
+          retention-days: 7
+
+  linux:
+    name: Build Linux packages
+    needs: [prepare, checks]
+    if: needs.prepare.outputs.should_build == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - name: Download built web UI
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            libfuse2 \
+            patchelf \
+            rpm \
+            fakeroot
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            packaging/requirements-build.txt
+
+      - name: Install sidecar build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r packaging/requirements-build.txt
+
+      - name: Stamp verification version
+        if: needs.prepare.outputs.needs_stamp == 'true'
+        run: python scripts/version.py set "${{ needs.prepare.outputs.version }}"
+
+      - name: Check version manifests
+        run: python scripts/version.py check
+
+      - name: Build backend sidecar
+        run: |
+          pyinstaller --noconfirm --clean \
+            --distpath packaging/dist \
+            --workpath packaging/build \
+            packaging/filepilot-backend.spec
+          file packaging/dist/filepilot-backend
+          mkdir -p desktop/src-tauri/binaries
+          cp packaging/dist/filepilot-backend \
+            desktop/src-tauri/binaries/filepilot-backend-x86_64-unknown-linux-gnu
+          chmod +x desktop/src-tauri/binaries/filepilot-backend-x86_64-unknown-linux-gnu
+
+      - name: Smoke-test the sidecar
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          FILEPILOT_DATA_DIR="$tmp" \
+            FILEPILOT_IMPORT_LEGACY=false \
+            FILEPILOT_HOST=127.0.0.1 \
+            FILEPILOT_PORT=6970 \
+            FILEPILOT_TLS=off \
+            ./desktop/src-tauri/binaries/filepilot-backend-x86_64-unknown-linux-gnu \
+            >"$tmp/sidecar.log" 2>&1 &
+          server_pid=$!
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:6970/api/health >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:6970/api/health
+          curl -fsS http://127.0.0.1:6970/ | grep -qi "<!doctype html"
+          kill "$server_pid" 2>/dev/null || true
+          for _ in $(seq 1 10); do
+            kill -0 "$server_pid" 2>/dev/null || break
+            sleep 1
+          done
+          kill -9 "$server_pid" 2>/dev/null || true
+          wait "$server_pid" 2>/dev/null || true
+          cat "$tmp/sidecar.log"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri -> target
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Build Linux bundles
+        working-directory: desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npx tauri build --bundles deb,rpm,appimage
+
+      - name: Collect packages and checksums
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir -p dist-linux
+          cp desktop/src-tauri/target/release/bundle/deb/*.deb dist-linux/
+          cp desktop/src-tauri/target/release/bundle/rpm/*.rpm dist-linux/
+          cp desktop/src-tauri/target/release/bundle/appimage/*.AppImage dist-linux/
+          cp desktop/src-tauri/target/release/bundle/appimage/*.AppImage.sig dist-linux/
+
+          for required in "dist-linux/*.deb" "dist-linux/*.rpm" "dist-linux/*.AppImage" "dist-linux/*.AppImage.sig"; do
+            if ! compgen -G "$required" >/dev/null; then
+              echo "::error::Expected package matching $required was not produced."
+              exit 1
+            fi
+          done
+
+          cd dist-linux
+          files=(*.deb *.rpm *.AppImage *.AppImage.sig)
+          sha256sum "${files[@]}" > SHA256SUMS-linux.txt
+          cat SHA256SUMS-linux.txt
+
+      - name: Upload Linux packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: filepilot-linux-x86_64-${{ needs.prepare.outputs.version }}
+          path: dist-linux/*
+          if-no-files-found: error
+          retention-days: 14
+
+  windows:
+    name: Build Windows packages
+    needs: [prepare, checks]
+    if: needs.prepare.outputs.should_build == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - name: Download built web UI
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            packaging/requirements-build.txt
+
+      - name: Install sidecar build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r packaging/requirements-build.txt
+
+      - name: Stamp verification version
+        if: needs.prepare.outputs.needs_stamp == 'true'
+        run: python scripts/version.py set "${{ needs.prepare.outputs.version }}"
+
+      - name: Check version manifests
+        run: python scripts/version.py check
+
+      - name: Build backend sidecar (Windows)
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean `
+            --distpath packaging/dist `
+            --workpath packaging/build `
+            packaging/filepilot-backend.spec
+          New-Item -ItemType Directory -Force -Path desktop\src-tauri\binaries
+          copy packaging\dist\filepilot-backend.exe desktop\src-tauri\binaries\filepilot-backend-x86_64-pc-windows-msvc.exe
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri -> target
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Install NSIS
+        run: choco install nsis --version 3.09 --no-progress
+
+      - name: Build Windows bundles
+        shell: pwsh
+        working-directory: desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npx tauri build --bundles nsis,msi
+
+      - name: Collect packages and checksums
+        shell: pwsh
+        run: |
+          mkdir dist-windows
+          copy desktop\src-tauri\target\release\bundle\nsis\*.exe dist-windows\
+          copy desktop\src-tauri\target\release\bundle\nsis\*.exe.sig dist-windows\
+          copy desktop\src-tauri\target\release\bundle\msi\*.msi dist-windows\
+          $msiSig = "desktop\src-tauri\target\release\bundle\msi"
+          if (Test-Path $msiSig) {
+            Get-ChildItem "$msiSig\*.msi.sig" -ErrorAction SilentlyContinue |
+              Copy-Item -Destination dist-windows
+          }
+
+          $required = @(
+            "dist-windows\*.exe",
+            "dist-windows\*.exe.sig",
+            "dist-windows\*.msi"
+          )
+          foreach ($pattern in $required) {
+            if (-not (Get-ChildItem $pattern -ErrorAction SilentlyContinue)) {
+              Write-Error "Expected package matching $pattern was not produced."
+              exit 1
+            }
+          }
+
+          cd dist-windows
+          Get-ChildItem -File | Where-Object { $_.Name -ne 'SHA256SUMS-windows.txt' } |
+            Sort-Object Name |
+            ForEach-Object {
+              $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+              "$hash  $($_.Name)"
+            } | Set-Content SHA256SUMS-windows.txt
+          type SHA256SUMS-windows.txt
+
+      - name: Upload Windows packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: filepilot-windows-x86_64-${{ needs.prepare.outputs.version }}
+          path: dist-windows/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish stable release
+    needs: [prepare, checks, linux, windows]
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/rel' &&
+      needs.prepare.outputs.should_release == 'true'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: filepilot-*
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Generate updater manifest, notes, and checksums
+        shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          PREVIOUS_TAG: ${{ needs.prepare.outputs.previous_tag }}
+          SHA: ${{ needs.prepare.outputs.sha }}
+        run: |
+          set -euo pipefail
+
+          python scripts/conventional_version.py notes \
+            --from-tag "$PREVIOUS_TAG" \
+            --to-ref "$SHA" \
+            --out release-notes.md
+
+          python scripts/updater_manifest.py \
+            --artifacts release-artifacts \
+            --version "$VERSION" \
+            --tag "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --out release-artifacts/latest.json \
+            --notes "FilePilot $VERSION"
+
+          cd release-artifacts
+          find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -print0 |
+            sort -z |
+            xargs -0 sha256sum > SHA256SUMS.txt.tmp
+          mv SHA256SUMS.txt.tmp SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create draft, upload, verify, and publish
+        shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          SHA: ${{ needs.prepare.outputs.sha }}
+        run: |
+          set -euo pipefail
+
+          published=false
+          draft_created=false
+          cleanup() {
+            status=$?
+            if [ "$status" -ne 0 ] && [ "$published" != "true" ] && [ "$draft_created" = "true" ]; then
+              echo "::warning::Release failed before publishing; removing the draft and tag so a retry is safe."
+              gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+            fi
+            exit "$status"
+          }
+          trap cleanup EXIT
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::Tag $TAG already exists. Refusing to overwrite it."
+            exit 1
+          fi
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release $TAG already exists. Refusing to overwrite it."
+            exit 1
+          fi
+
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$SHA" \
+            --title "FilePilot $VERSION" \
+            --notes-file release-notes.md \
+            --draft
+          draft_created=true
+
+          gh release upload "$TAG" release-artifacts/* \
+            --repo "$GITHUB_REPOSITORY"
+
+          tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha)"
+          if [ "$tag_sha" != "$SHA" ]; then
+            echo "::error::Tag $TAG points to $tag_sha, expected $SHA."
+            exit 1
+          fi
+
+          expected_count="$(find release-artifacts -maxdepth 1 -type f | wc -l)"
+          asset_count="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets | length')"
+          if [ "$asset_count" -ne "$expected_count" ]; then
+            echo "::error::Release has $asset_count assets, expected $expected_count."
+            exit 1
+          fi
+
+          for required in latest.json SHA256SUMS.txt; do
+            if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -qx "$required"; then
+              echo "::error::Missing $required in the release assets."
+              exit 1
+            fi
+          done
+
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          published=true
+
+          echo "Published $TAG at $SHA."
+          {
+            echo "### FilePilot $VERSION published"
+            echo ""
+            echo "- Tag: \`$TAG\`"
+            echo "- Commit: \`$SHA\`"
+            echo "- Release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
+          } >> "$GITHUB_STEP_SUMMARY"
