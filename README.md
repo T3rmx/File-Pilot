@@ -3,52 +3,33 @@
 Secure, local-first file sharing for your LAN — files stay on the host device, shares stay private.
 
 - **Port:** `6969` for everything: web UI, REST API, WebSocket, share links, QR targets, TLS.
-- **Stack:** FastAPI + SQLAlchemy (SQLite WAL) backend, React 19 + TypeScript + Vite frontend.
 - **Security:** AES-256-GCM share tokens, Argon2id password hashing, per-share passwords, download/upload limits, expiry + instant revoke, rate limiting, audit log, security headers, attachment-only downloads, safe inline preview allowlist, path-traversal + symlink containment, filename sanitisation, CSRF protection, same-origin enforcement.
 - **Access control:** Admins, Members, and Viewers. Manage users and roles from **Settings → Users & roles**.
 - **TLS:** Choose HTTP or HTTPS at first-run setup. Switch later in **Settings → Connection security** (auto-restarts when changed).
-- **Desktop:** Tauri v2 shell with a bundled PyInstaller backend sidecar. Linux (`.deb`, `.rpm`, `.AppImage`) and Windows (`.exe`, `.msi`) packages are built by GitHub Actions from the `beta` and `rel` branches — see [docs/linux.md](docs/linux.md), [docs/windows.md](docs/windows.md), and [docs/releasing.md](docs/releasing.md).
+- **Desktop apps:** Linux (`.deb`, `.rpm`, `.AppImage`) and Windows (`.exe`, `.msi`) installers — no Python, Node.js, or extra tools required.
 
-## Quick start (development)
+## Quick start
 
-```bash
-python -m venv .venv
-.venv/bin/pip install -r requirements.txt
+1. **Download** the latest release for your platform from [GitHub Releases](https://github.com/T3rmx/File-Pilot/releases/latest):
+   - Linux: `.deb`, `.rpm`, or `.AppImage`
+   - Windows: `.exe` (setup) or `.msi`
+2. **Install** and launch FilePilot.
+3. On first run, the setup wizard appears:
+   - Choose **HTTPS** (default, self-signed certificate) or **HTTP**.
+   - Create your admin account.
+   - Start uploading and sharing files.
 
-# terminal 1 — backend
-FILEPILOT_DATA_DIR=data FILEPILOT_IMPORT_LEGACY=false \
-  .venv/bin/python -m backend.app
+Open `https://<your-device>:6969` in any browser on your LAN (or `http://` if you chose HTTP).
 
-# terminal 2 — frontend dev server (proxies /api, /ws, /ca.crt, /trust to :6969)
-cd web
-npm install
-npm run dev
-```
+## Features
 
-Open <https://127.0.0.1:6969> (or `http://` if you chose HTTP).
-
-First run shows the setup wizard: choose HTTP or HTTPS, create the admin account, then upload files. If you switch HTTP<->HTTPS later, FilePilot will restart to apply it.
-
-### Options
-
-| Env / flag | Default | Meaning |
-| --- | --- | --- |
-| `FILEPILOT_PORT` / `--port` | `6969` | Bind port (must stay 6969 for the v1 plan) |
-| `FILEPILOT_HOST` / `--host` | `0.0.0.0` | Bind address; `--lan` → `0.0.0.0`; `--host 127.0.0.1` → loopback only |
-| `FILEPILOT_TLS` / `--tls` | `auto` | `auto` \| `on` \| `off`; `--no-tls` forces plain HTTP. CLI/env lock TLS in Settings (restart still applies changes saved in the wizard/runtime). |
-| `FILEPILOT_DATA_DIR` | `data` | Runtime directory (db, uploads, certs, logs, secret) |
-| `FILEPILOT_IMPORT_LEGACY` | `true` | One-time import of the old Flask `shared/` content on first setup |
-
-## Features (v1 — Phase 0 → 3)
-
-- Private upload + browse + download file manager (grid/list, search, breadcrumbs, drag & drop, upload progress dock).
-- Unique share links for a file, a folder, or a multi-file selection; QR code per link; copy link; instant revoke; password, expiry, download limit; ZIP for folders/multi-file shares. Link addresses can be random or a custom readable token.
-- Public share page at `/s/<token>` with password unlock, preview, downloads, and `.zip` bundle.
-- **Upload links (dropzone):** a "Receive files" panel below the files list creates a link anyone can use to send files into your storage — no account needed. Optional password, expiry and upload limit; received files land in your home folder, never overwrite existing names, and respect the server upload size/quota settings. Revoke any upload link from Share links.
-- Dashboard with usage stats, storage meter, activity feed, quick actions.
-- Transfer log for uploads and downloads.
-- Admin settings: server name, max upload size, uploads toggle, LAN discovery, HTTP/HTTPS transport; users & roles; audit log; password change.
-- Theming (light/dark), language (English / Arabic with full RTL support).
+- **Private file manager** — grid/list views, search, breadcrumbs, drag & drop, upload progress.
+- **Share links** — unique link per file, folder, or selection; QR code; password, expiry, download limit; instant revoke; ZIP bundles for folders/multi-file shares.
+- **Upload links (dropzone)** — give anyone a URL to send files directly into your storage; no account needed; optional password, expiry, and upload limit.
+- **Dashboard** — usage stats, storage meter, activity feed, quick actions.
+- **Transfer log** — uploads and downloads tracked in real time.
+- **Admin settings** — server name, max upload size, LAN discovery, HTTP/HTTPS transport, users & roles, audit log, password change.
+- **Theming & language** — light/dark mode, English / Arabic with full RTL support.
 
 ## Upload links
 
@@ -57,9 +38,9 @@ Give someone a URL to send you files — they don't need an account or the app.
 1. Open **Files** and scroll below the list to the **Receive files** panel.
 2. Choose **Create upload link**, then optionally set a title, password, expiry and upload limit.
 3. Copy the link or open its QR code, and send it to anyone.
-4. They open `/s/<token>`, drop files into the page, and each file is uploaded straight to your home folder.
+4. They open the link, drop files into the page, and each file is uploaded straight to your home folder.
 
-Received files appear in **Files** immediately (live WebSocket refresh), are logged in **Transfers** and the audit log, and never overwrite an existing name. Upload links can only receive files — they cannot list, preview, download or zip anything. Revoke a link at any time from **Share links**.
+Received files appear in **Files** immediately, are logged in **Transfers** and the audit log, and never overwrite an existing name. Revoke a link at any time from **Share links**.
 
 ## Users & roles
 
@@ -75,26 +56,22 @@ Admins manage accounts in **Settings → Users & roles**. Each account has a rol
 - The last active admin cannot be demoted, disabled, or deleted.
 - Resetting a password or disabling an account revokes that user's sessions immediately.
 - Deleting a user permanently removes their files, shares, sessions, and transfer history links. Type the username to confirm.
-
-New accounts default to **Member**. Set a storage limit in MB, or leave it empty for unlimited.
+- New accounts default to **Member**. Set a storage limit in MB, or leave it empty for unlimited.
 
 ## HTTP and HTTPS
 
-At first-run setup you pick **HTTPS** (default, self-signed CA generated locally) or **HTTP** (plain, easier on devices that won't trust the certificate). The choice is saved in `data/runtime.json` and reused on every start.
+At first-run setup you pick **HTTPS** (default, self-signed CA generated locally) or **HTTP** (plain, easier on devices that won't trust the certificate). The choice is saved and reused on every start.
 
 Change it later in **Settings → Connection security**:
-
 1. Pick HTTP or HTTPS and save.
-2. FilePilot asks to restart; the server re-execs itself and the UI opens the new address.
-3. Update bookmarks or QR targets — all share URLs follow the active scheme automatically.
-
-Precedence at boot: CLI flag (`--tls`, `--no-tls`) → `FILEPILOT_TLS` → saved choice → default (`auto`). When TLS is locked by a CLI flag or environment variable, Settings shows it as read-only. Trust certificates and `/ca.crt` are only offered while HTTPS is active.
+2. FilePilot restarts automatically and the UI opens the new address.
+3. All share URLs follow the active scheme automatically.
 
 On HTTPS, phones will show a one-time certificate warning until you install the local CA from **Settings → Trust certificate** (or visit `/trust`).
 
-## Desktop packages
+## Desktop apps
 
-FilePilot also runs as a desktop app on Linux and Windows. It bundles its own backend, so Python and Node.js are not required on the target machine.
+FilePilot runs as a desktop app on Linux and Windows. It bundles its own backend, so Python and Node.js are not required on the target machine.
 
 | Package | For |
 | --- | --- |
@@ -104,101 +81,17 @@ FilePilot also runs as a desktop app on Linux and Windows. It bundles its own ba
 | `.exe` (NSIS) | Windows 10/11, normal installation and in-app updates |
 | `.msi` | Windows 10/11, managed deployment |
 
-Packages are built **only** by GitHub Actions — no local Rust or packaging tools needed. A normal push to `dev` never runs Actions; pushes to `beta` build test packages and pushes to `rel` publish the stable release.
-
 Linux data lives in `~/.local/share/FilePilot`; Windows data lives in `%APPDATA%\FilePilot`. Uninstalling the app does not delete that folder.
 
 The AppImage and NSIS builds check for updates on startup and offer **Dismiss** or **Install**. Install commands, TLS notes, and troubleshooting are in [docs/linux.md](docs/linux.md) and [docs/windows.md](docs/windows.md).
 
-## Branches, versions, and releases
+## Documentation
 
-FilePilot uses three long-lived branches:
+- [Linux packages](docs/linux.md) — install, update, troubleshooting
+- [Windows packages](docs/windows.md) — install, update, troubleshooting
+- [Release process](docs/releasing.md) — developer documentation for the automated release pipeline
+- [Development](docs/development.md) — local development setup and workflow
 
-| Branch | Purpose | What a push does |
-| --- | --- | --- |
-| `dev` | Development | **No Actions run.** Run tests, lint, and the web type-check locally. |
-| `beta` | Integration testing | Tests plus Linux (`.deb`, `.rpm`, `.AppImage`) and Windows (`.exe`, `.msi`) packages, uploaded as downloadable Actions artifacts. Nothing is published. |
-| `rel` | Production | Calculates the next version from Conventional Commits, updates every version file, builds and signs all packages, creates `vX.Y.Z`, and publishes the stable GitHub Release marked Latest. |
+## License
 
-The normal flow is `dev → beta → rel`, through pull requests or merges. `rel` is the default branch and the only branch allowed to publish. Pushes to `dev` intentionally start no workflow; merge to `beta` when you want the CI build.
-
-### Automatic versioning
-
-You never edit `VERSION`, `package.json`, the Tauri/Cargo versions, Git tags, or release names for a normal release. On a push to `rel`, the workflow:
-
-1. Finds the latest **stable** tag (`vX.Y.Z`; prerelease tags are ignored).
-2. Reads every commit since that tag.
-3. Chooses the highest required bump:
-   - `fix: ...` → patch
-   - `feat: ...` → minor
-   - `BREAKING CHANGE:` in the body or `!` after the type → major
-4. Updates `VERSION`, the backend package, web and desktop manifests/lockfiles, the Tauri config, and `Cargo.toml`.
-5. Commits the synchronized files as `github-actions[bot]` with `chore(release): vX.Y.Z [skip ci]`.
-6. Builds and signs every package from that exact commit.
-7. Creates tag `vX.Y.Z`, publishes the release as Latest, and uploads `latest.json`.
-
-`docs:`, `ci:`, `chore:`, `test:`, `build:`, `style:`, `refactor:`, and `perf:` commits do not trigger a release on their own. If there are no release-worthy commits, the workflow skips publishing instead of guessing a version. It also refuses to continue if the tag or release already exists, if `VERSION` is invalid or out of sync, or if the calculated version would go backwards.
-
-The helper script remains available for inspection and emergency recovery:
-
-```bash
-python scripts/version.py show       # current version
-python scripts/version.py check      # verify every manifest matches VERSION
-python scripts/version.py set 1.2.0  # emergency only; normal releases are automatic
-```
-
-### Beta test builds
-
-Merge `dev` into `beta` and push:
-
-```bash
-git switch beta
-git merge dev
-git push origin beta
-```
-
-GitHub Actions runs the tests, builds the web UI, produces Linux `.deb`/`.rpm`/`.AppImage` and Windows `.exe`/`.msi` packages, and uploads them to the workflow run. It does **not** create a tag, GitHub Release, or updater manifest. Download the `filepilot-linux-x86_64-<version>` and `filepilot-windows-x86_64-<version>` artifacts to test them.
-
-### Stable releases
-
-Merge `beta` into `rel` and push:
-
-```bash
-git switch rel
-git merge beta
-git push origin rel
-```
-
-That push is the entire release action. There is no manual version edit, tag, dispatch, or approval. The tag only appears after every test, build, and signing step succeeds, and the release is published only after every asset (including `latest.json`) is uploaded.
-
-If a build fails, nothing is published. Re-running the failed workflow is safe: the version commit is reused, and an unfinished draft release is removed before a retry.
-
-### Verification builds
-
-**Actions → CI/CD → Run workflow** performs a verification build. Run it on `beta` for test packages or on `rel` for the full release build with the calculated version. It never commits, tags, or publishes, so it is safe for testing packaging changes. `dev` does not run Actions.
-
-Full details, recovery steps, and limitations are in [docs/releasing.md](docs/releasing.md).
-
-## Tests
-
-```bash
-cd backend && ../.venv/bin/python -m pytest
-../.venv/bin/python -m ruff check app tests
-cd web && npm run build && npm run lint
-```
-
-## Project layout
-
-```
-backend/   FastAPI application (app/, routers, services, tests)
-web/       React + TypeScript + Vite SPA (src/, vite.config.ts)
-desktop/   Tauri v2 desktop shell (src-tauri/, loader/) and app icons
-packaging/ PyInstaller entry point and spec for the backend sidecar
-scripts/   Version sync (scripts/version.py) and Conventional Commits detection
-docs/      Linux and Windows package guides, plus docs/releasing.md
-.github/   CI/CD workflow: beta test artifacts and automatic stable releases
-legacy/    The original Flask app, kept for reference / import source
-shared/    Legacy demo content (gitignored) — imported once on first run
-data/      Runtime data (gitignored): db, uploads, certs, logs, secret key, runtime.json (saved TLS mode)
-VERSION    Single source of truth for the app version
-```
+MIT License — see [LICENSE](LICENSE) for details.
