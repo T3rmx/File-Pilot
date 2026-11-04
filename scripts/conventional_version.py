@@ -49,6 +49,10 @@ CONVENTIONAL = re.compile(
 )
 BREAKING = re.compile(r"(?im)^BREAKING[ -]CHANGE:\s*(?P<text>.+)$")
 BOT_RELEASE = re.compile(r"^chore\(release\):\s*v?\d+\.\d+\.\d+\b", re.IGNORECASE)
+SKIP_DIRECTIVE = re.compile(
+    r"\s*\[(?:skip ci|ci skip|no ci|skip actions|actions skip)\]\s*$",
+    re.IGNORECASE,
+)
 
 BUMP_ORDER = {"patch": 1, "minor": 2, "major": 3}
 RELEASE_TYPES = {"fix": "patch", "feat": "minor"}
@@ -243,6 +247,11 @@ def detect(repo: Path, from_tag: str | None, to_ref: str) -> dict:
     }
 
 
+def display_subject(subject: str) -> str:
+    """Drop trailing CI-skip directives from a subject used in release notes."""
+    return SKIP_DIRECTIVE.sub("", subject).rstrip()
+
+
 def render_notes(result: dict) -> str:
     lines = [f"## FilePilot {result['next_version']}", ""]
     if not result["release"]:
@@ -280,7 +289,7 @@ def render_notes(result: dict) -> str:
             continue
         lines.append(f"### {title}")
         for commit in commits:
-            lines.append(f"- {commit['subject']} (`{commit['sha'][:7]}`)")
+            lines.append(f"- {display_subject(commit['subject'])} (`{commit['sha'][:7]}`)")
         lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"

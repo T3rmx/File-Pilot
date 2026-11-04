@@ -2,7 +2,7 @@ name: CI/CD
 
 # Branch model
 # ------------
-#   dev   development. Tests, lint, and the web type-check run here. No packages.
+#   dev   development. No Actions run on push. Run checks locally.
 #   beta  integration testing. Tests plus Linux/Windows packages are uploaded as
 #         downloadable workflow artifacts. Nothing is published.
 #   rel   production. Conventional Commits since the latest stable vX.Y.Z tag
@@ -12,13 +12,12 @@ name: CI/CD
 #         (and latest.json) as the latest stable release.
 #
 # A manual "Run workflow" is a verification build only. It never commits, tags,
-# or publishes. Run it on dev for checks, on beta for test packages, and on rel
-# for the full release build. Normal releases need only a push to rel.
+# or publishes. Run it on beta for test packages or on rel for the full release
+# build. dev does not run Actions at all.
 
 on:
   push:
     branches:
-      - dev
       - beta
       - rel
   workflow_dispatch:
@@ -119,7 +118,8 @@ jobs:
               should_build=true
               echo "Beta verification run: building test packages with VERSION $version. Nothing will be published."
             else
-              echo "Development verification run: running checks only."
+              echo "::error::dev does not run CI. Run checks locally; use beta for test builds or rel for releases."
+              exit 1
             fi
           elif [ "$REF_NAME" = "rel" ]; then
             read_detection
@@ -178,7 +178,8 @@ jobs:
             should_build=true
             echo "Beta branch: building test packages with VERSION $version."
           else
-            echo "Development branch: running checks only."
+            echo "::error::Unsupported branch $REF_NAME. CI runs only on beta and rel."
+            exit 1
           fi
 
           {
@@ -619,7 +620,12 @@ jobs:
           gh release upload "$TAG" release-artifacts/* \
             --repo "$GITHUB_REPOSITORY"
 
-          tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha)"
+          tag_ref="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG")"
+          tag_type="$(jq -r '.object.type' <<<"$tag_ref")"
+          tag_sha="$(jq -r '.object.sha' <<<"$tag_ref")"
+          if [ "$tag_type" = "tag" ]; then
+            tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_sha" --jq .object.sha)"
+          fi
           if [ "$tag_sha" != "$SHA" ]; then
             echo "::error::Tag $TAG points to $tag_sha, expected $SHA."
             exit 1
