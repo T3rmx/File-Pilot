@@ -144,7 +144,7 @@ python scripts/version.py check         # verify every manifest matches VERSION
    git push origin beta
    ```
 
-3. GitHub Actions stamps the version as `<VERSION>-beta.<run_number>` (for example `1.2.0-beta.12`), builds Linux and Windows packages, and publishes a prerelease. No approval is needed, and the stable updater ignores prereleases.
+3. GitHub Actions stamps the version as `<VERSION>-beta.<run_number>` (for example `1.2.0-beta.12`), builds Linux and Windows packages, and publishes a prerelease. No approval is needed, and the stable updater ignores prereleases. Beta Linux packages are `.deb` and `.AppImage`; final releases also add `.rpm` and MSI (RPM cannot encode a prerelease version).
 
 ### Final releases (the "end version")
 

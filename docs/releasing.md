@@ -56,8 +56,12 @@ The workflow:
 
 1. reads `VERSION` (for example `1.2.0`);
 2. stamps `1.2.0-beta.<run_number>` into every manifest;
-3. builds Linux (`.deb`, `.rpm`, `.AppImage`) and Windows (NSIS `.exe`);
+3. builds Linux (`.deb`, `.AppImage`) and Windows (NSIS `.exe`);
 4. publishes a GitHub **prerelease** tagged `v1.2.0-beta.<run_number>`.
+
+RPM packages are only produced for final releases, because RPM cannot encode a
+semver prerelease such as `1.2.0-beta.10`. Beta testers on Fedora/RHEL can use
+the AppImage.
 
 Prereleases are never returned by `releases/latest`, so the stable in-app
 updater ignores them.

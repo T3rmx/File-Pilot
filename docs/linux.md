@@ -34,7 +34,8 @@ Rust. It installs WebKitGTK 4.1, RPM tooling, AppImage tooling, and then:
 2. Runs backend tests and lint, type-checks and builds the web UI.
 3. Builds the backend as a one-file PyInstaller sidecar.
 4. Runs a short smoke test against the sidecar (`/api/health` and the SPA).
-5. Builds the Tauri app and the `.deb`, `.rpm`, and `.AppImage` bundles.
+5. Builds the Tauri app and the `.deb`, `.rpm`, and `.AppImage` bundles
+   (`.rpm` is skipped for beta prereleases, which RPM cannot version).
 6. Writes `SHA256SUMS.txt`.
 7. On a publish channel, creates the GitHub Release.
 
