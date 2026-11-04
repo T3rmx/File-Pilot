@@ -59,9 +59,10 @@ The workflow:
 3. builds Linux (`.deb`, `.AppImage`) and Windows (NSIS `.exe`);
 4. publishes a GitHub **prerelease** tagged `v1.2.0-beta.<run_number>`.
 
-RPM packages are only produced for final releases, because RPM cannot encode a
-semver prerelease such as `1.2.0-beta.10`. Beta testers on Fedora/RHEL can use
-the AppImage.
+RPM and MSI packages are only produced for plain versions (final releases),
+because RPM cannot encode a semver prerelease such as `1.2.0-beta.10`. Beta
+testers on Fedora/RHEL can use the AppImage, and Windows testers use the NSIS
+setup.
 
 Prereleases are never returned by `releases/latest`, so the stable in-app
 updater ignores them.
