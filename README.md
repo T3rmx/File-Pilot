@@ -7,7 +7,7 @@ Secure, local-first file sharing for your LAN — files stay on the host device,
 - **Security:** AES-256-GCM share tokens, Argon2id password hashing, per-share passwords, download/upload limits, expiry + instant revoke, rate limiting, audit log, security headers, attachment-only downloads, safe inline preview allowlist, path-traversal + symlink containment, filename sanitisation, CSRF protection, same-origin enforcement.
 - **Access control:** Admins, Members, and Viewers. Manage users and roles from **Settings → Users & roles**.
 - **TLS:** Choose HTTP or HTTPS at first-run setup. Switch later in **Settings → Connection security** (auto-restarts when changed).
-- **Desktop:** Tauri v2 shell with a bundled PyInstaller backend sidecar. Linux (`.deb`, `.rpm`, `.AppImage`) and Windows (`.exe`, `.msi`) packages are built by GitHub Actions — see [docs/linux.md](docs/linux.md) and [docs/windows.md](docs/windows.md).
+- **Desktop:** Tauri v2 shell with a bundled PyInstaller backend sidecar. Linux (`.deb`, `.rpm`, `.AppImage`) and Windows (`.exe`, `.msi`) packages are built by GitHub Actions from the `beta` and `release` channels — see [docs/linux.md](docs/linux.md), [docs/windows.md](docs/windows.md), and [docs/releasing.md](docs/releasing.md).
 
 ## Quick start (development)
 
@@ -104,14 +104,73 @@ FilePilot also runs as a desktop app on Linux and Windows. It bundles its own ba
 | `.exe` (NSIS) | Windows 10/11, normal installation and in-app updates |
 | `.msi` | Windows 10/11, managed deployment |
 
-Packages are built **only** by GitHub Actions — no local Rust or packaging tools needed:
-
-1. Open **Actions → Desktop packages → Run workflow** for a test build, then download the `filepilot-release-v1.1.0` artifact.
-2. Push a tag like `v1.1.0` to build the Linux and Windows packages. Publishing waits for approval on the `release` environment before the GitHub Release is created.
+Packages are built **only** by GitHub Actions — no local Rust or packaging tools needed. A normal push to `main` never starts a build.
 
 Linux data lives in `~/.local/share/FilePilot`; Windows data lives in `%APPDATA%\FilePilot`. Uninstalling the app does not delete that folder.
 
 The AppImage and NSIS builds check for updates on startup and offer **Dismiss** or **Install**. Install commands, TLS notes, and troubleshooting are in [docs/linux.md](docs/linux.md) and [docs/windows.md](docs/windows.md).
+
+## Branches, versions, and releases
+
+FilePilot keeps `main` for development, `beta` for pre-release testing, and `release` for final versions. Pushing to `main` does not build anything.
+
+| Branch | Purpose | What a push does |
+| --- | --- | --- |
+| `main` | Development and fast iteration | Nothing — no packages are built |
+| `beta` | Pre-release testing | Builds `<VERSION>-beta.<run>` and publishes a GitHub **prerelease** automatically |
+| `release` | Stable channel | Nothing on push; a `vX.Y.Z` tag (or a manual `release` run) publishes the final version |
+
+`VERSION` at the repository root is the single source of truth for the version. All manifests are kept in sync from it.
+
+### Version management
+
+```bash
+python scripts/version.py show          # print the current version
+python scripts/version.py bump patch    # 1.2.0 -> 1.2.1 (also: minor, major)
+python scripts/version.py set 1.2.0     # set an exact version
+python scripts/version.py check         # verify every manifest matches VERSION
+```
+
+`bump`/`set` update `VERSION`, the backend package, web and desktop `package.json`, both lockfiles, the Tauri config, and `Cargo.toml` together. CI runs `check` on every build, so a release cannot ship mismatched versions. Never edit those files by hand.
+
+### Beta releases (fast, automatic)
+
+1. Merge your work from `main` into `beta`.
+2. Push `beta`:
+
+   ```bash
+   git switch beta
+   git merge main
+   git push origin beta
+   ```
+
+3. GitHub Actions stamps the version as `<VERSION>-beta.<run_number>` (for example `1.2.0-beta.12`), builds Linux and Windows packages, and publishes a prerelease. No approval is needed, and the stable updater ignores prereleases.
+
+### Final releases (the "end version")
+
+1. Bump the version and move it through the channels:
+
+   ```bash
+   python scripts/version.py bump minor    # 1.2.0 -> 1.3.0 (or patch / major)
+   git add VERSION backend web desktop
+   git commit -m "chore: release 1.3.0"
+   git push origin main
+
+   git switch beta && git merge main && git push origin beta
+   git switch release && git merge beta && git push origin release
+   ```
+
+2. Publish in either way:
+   - Push the tag from `release`: `git tag v1.3.0 && git push origin v1.3.0`
+   - Or open **Actions → Desktop packages → Run workflow**, select the `release` branch, channel `release`, and run it.
+
+3. The build runs, then **Publish final release** waits for approval on the `release` environment. Approve it to publish the final GitHub Release.
+
+The final release becomes `releases/latest`, which is what the in-app updater reads. Beta prereleases are ignored by the updater. Full details are in [docs/releasing.md](docs/releasing.md).
+
+### Test builds
+
+Open **Actions → Desktop packages → Run workflow**, pick any branch, and choose channel `artifacts`. It builds Linux and Windows packages without publishing anything; download `filepilot-release-<version>` from the run.
 
 ## Tests
 
@@ -128,9 +187,11 @@ backend/   FastAPI application (app/, routers, services, tests)
 web/       React + TypeScript + Vite SPA (src/, vite.config.ts)
 desktop/   Tauri v2 desktop shell (src-tauri/, loader/) and app icons
 packaging/ PyInstaller entry point and spec for the backend sidecar
-docs/      Linux and Windows package, install, and troubleshooting notes
-.github/   GitHub Actions workflow for the desktop packages
+scripts/   Version management helper (scripts/version.py)
+docs/      Linux and Windows package guides, plus docs/releasing.md
+.github/   GitHub Actions workflow for tests and desktop packages
 legacy/    The original Flask app, kept for reference / import source
 shared/    Legacy demo content (gitignored) — imported once on first run
 data/      Runtime data (gitignored): db, uploads, certs, logs, secret key, runtime.json (saved TLS mode)
+VERSION    Single source of truth for the app version
 ```
