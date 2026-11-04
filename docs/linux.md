@@ -17,24 +17,30 @@ web UI in a desktop window.
 All packages are built by GitHub Actions. Nothing needs to be compiled on your
 machine.
 
-- **Manual test build:** GitHub → **Actions** → **Desktop packages** → **Run
-  workflow**. Download the `filepilot-linux-x86_64` artifact when it finishes.
-- **Release build:** push a tag such as `v1.1.0`. The same workflow builds the
-  Linux and Windows packages, then waits for approval on the `release`
-  environment before publishing them to a GitHub Release.
+- **Test build:** GitHub → **Actions** → **Desktop packages** → **Run
+  workflow**, channel `artifacts`. Download the `filepilot-linux-x86_64`
+  artifact when it finishes.
+- **Beta build:** push to the `beta` branch. The workflow stamps
+  `<VERSION>-beta.<run>`, builds Linux and Windows packages, and publishes a
+  prerelease automatically.
+- **Final release:** push a `vX.Y.Z` tag from the `release` branch. The same
+  workflow builds the Linux and Windows packages, then waits for approval on
+  the `release` environment before publishing the final GitHub Release.
 
 The workflow runs on `ubuntu-22.04` with Python 3.12, Node.js 22, and stable
 Rust. It installs WebKitGTK 4.1, RPM tooling, AppImage tooling, and then:
 
-1. Runs backend tests and lint, type-checks and builds the web UI.
-2. Builds the backend as a one-file PyInstaller sidecar.
-3. Runs a short smoke test against the sidecar (`/api/health` and the SPA).
-4. Builds the Tauri app and the `.deb`, `.rpm`, and `.AppImage` bundles.
-5. Writes `SHA256SUMS.txt`.
-6. On `v*` tags, publishes a GitHub Release with every file.
+1. Checks that every version manifest matches `VERSION`.
+2. Runs backend tests and lint, type-checks and builds the web UI.
+3. Builds the backend as a one-file PyInstaller sidecar.
+4. Runs a short smoke test against the sidecar (`/api/health` and the SPA).
+5. Builds the Tauri app and the `.deb`, `.rpm`, and `.AppImage` bundles.
+6. Writes `SHA256SUMS.txt`.
+7. On a publish channel, creates the GitHub Release.
 
-The tag should match the app version. For example, tag `v1.1.0` for version
-`1.1.0`.
+The tag must match `VERSION`. For example, tag `v1.3.0` for version `1.3.0`.
+Change `VERSION` with `python scripts/version.py bump patch` and commit it
+before tagging. See [releasing.md](releasing.md) for the full flow.
 
 ## Install
 

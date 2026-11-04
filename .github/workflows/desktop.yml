@@ -1,14 +1,42 @@
 name: Desktop packages
 
+# Branch and release model
+# ------------------------
+#   main     development and fast iteration. Pushing here never builds packages.
+#   beta     pre-release channel. Every push builds <VERSION>-beta.<run> and
+#            publishes it as a GitHub prerelease, with no manual approval.
+#   release  stable channel. A final release is built from a vX.Y.Z tag (or a
+#            manual "release" run on this branch) and waits for approval on the
+#            `release` environment before it is published.
+#
+# VERSION at the repository root is the only version source of truth. Change it
+# with `python scripts/version.py bump ...`; never edit the manifests by hand.
+
 on:
   workflow_dispatch:
+    inputs:
+      channel:
+        description: "artifacts = build only, beta = prerelease, release = final release"
+        type: choice
+        options:
+          - artifacts
+          - beta
+          - release
+        default: artifacts
+      version:
+        description: "Final version for the release channel (leave empty to use VERSION)"
+        type: string
+        required: false
   push:
+    branches:
+      - beta
     tags:
       - "v*"
 
+# Tag builds must never be cancelled by a newer push; branch builds may be.
 concurrency:
   group: desktop-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 permissions:
   contents: read
@@ -18,8 +46,115 @@ env:
   NODE_VERSION: "22"
 
 jobs:
+  meta:
+    name: Resolve version and channel
+    runs-on: ubuntu-22.04
+    outputs:
+      channel: ${{ steps.resolve.outputs.channel }}
+      version: ${{ steps.resolve.outputs.version }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      publish: ${{ steps.resolve.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version and channel
+        id: resolve
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_CHANNEL: ${{ inputs.channel }}
+          INPUT_VERSION: ${{ inputs.version }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+
+          base="$(python3 scripts/version.py show)"
+          case "$base" in
+            *-*) echo "::error::VERSION must be a plain X.Y.Z (found $base)"; exit 1 ;;
+          esac
+
+          channel="artifacts"
+          version=""
+          tag=""
+          publish="false"
+
+          if [ "$EVENT" = "push" ] && [ "$REF_TYPE" = "tag" ]; then
+            tag="$REF_NAME"
+            version="${tag#v}"
+            case "$version" in
+              *-beta.*) channel="beta" ;;
+              *)        channel="release" ;;
+            esac
+          elif [ "$EVENT" = "push" ]; then
+            # Push to the beta branch: auto-version and publish a prerelease.
+            channel="beta"
+            version="${base}-beta.${RUN_NUMBER}"
+            tag="v${version}"
+          else
+            channel="${INPUT_CHANNEL:-artifacts}"
+            case "$channel" in
+              artifacts)
+                version="$base"
+                ;;
+              beta)
+                version="${base}-beta.${RUN_NUMBER}"
+                tag="v${version}"
+                ;;
+              release)
+                version="${INPUT_VERSION:-$base}"
+                tag="v${version}"
+                ;;
+              *)
+                echo "::error::unknown channel '$channel'"
+                exit 1
+                ;;
+            esac
+          fi
+
+          if [ "$channel" = "beta" ]; then
+            case "$version" in
+              *-beta.*) ;;
+              *) echo "::error::beta version must be X.Y.Z-beta.N (got $version)"; exit 1 ;;
+            esac
+            base_part="${version%%-beta.*}"
+          else
+            base_part="$version"
+          fi
+
+          if [ "$base_part" != "$base" ]; then
+            echo "::error::version $version does not match VERSION ($base)."
+            echo "Run: python scripts/version.py set $base_part and commit it first."
+            exit 1
+          fi
+
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            if [ "$channel" = "beta" ] && [ "$REF_NAME" != "beta" ]; then
+              echo "::error::select the beta branch to publish a beta"
+              exit 1
+            fi
+            if [ "$channel" = "release" ] && [ "$REF_NAME" != "release" ]; then
+              echo "::error::select the release branch to publish a final release"
+              exit 1
+            fi
+          fi
+
+          if [ "$channel" = "artifacts" ]; then
+            publish="false"
+          else
+            publish="true"
+          fi
+
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "Building channel=$channel version=$version tag=${tag:-none} publish=$publish"
+
   checks:
     name: Tests and web build
+    needs: meta
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -37,6 +172,12 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
           python -m pip install "pytest>=8" "httpx>=0.27" "ruff>=0.6"
+
+      - name: Check version manifests
+        run: python scripts/version.py check
+
+      - name: Stamp build version
+        run: python scripts/version.py set "${{ needs.meta.outputs.version }}"
 
       - name: Backend tests
         working-directory: backend
@@ -74,7 +215,7 @@ jobs:
 
   linux:
     name: Build Linux packages
-    needs: checks
+    needs: [meta, checks]
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -108,6 +249,9 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             packaging/requirements-build.txt
+
+      - name: Stamp build version
+        run: python scripts/version.py set "${{ needs.meta.outputs.version }}"
 
       - name: Install sidecar build dependencies
         run: |
@@ -199,7 +343,7 @@ jobs:
 
   windows:
     name: Build Windows packages
-    needs: checks
+    needs: [meta, checks]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -217,6 +361,9 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             packaging/requirements-build.txt
+
+      - name: Stamp build version
+        run: python scripts/version.py set "${{ needs.meta.outputs.version }}"
 
       - name: Install sidecar build dependencies
         run: |
@@ -258,7 +405,14 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npx tauri build --bundles nsis,msi
+          CHANNEL: ${{ needs.meta.outputs.channel }}
+        run: |
+          # MSI/WiX only for final releases; beta testers use the NSIS setup.
+          if ($env:CHANNEL -eq "release") {
+            npx tauri build --bundles nsis,msi
+          } else {
+            npx tauri build --bundles nsis
+          }
 
       - name: Collect packages and checksums
         shell: pwsh
@@ -266,8 +420,11 @@ jobs:
           mkdir dist-windows
           copy desktop\src-tauri\target\release\bundle\nsis\*.exe dist-windows\
           copy desktop\src-tauri\target\release\bundle\nsis\*.exe.sig dist-windows\
-          copy desktop\src-tauri\target\release\bundle\msi\*.msi dist-windows\
-          copy desktop\src-tauri\target\release\bundle\msi\*.msi.sig dist-windows\
+          $msi = "desktop\src-tauri\target\release\bundle\msi"
+          if (Test-Path $msi) {
+            copy "$msi\*.msi" dist-windows\
+            copy "$msi\*.msi.sig" dist-windows\
+          }
           cd dist-windows
           Get-ChildItem -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' } |
             Sort-Object Name |
@@ -287,11 +444,8 @@ jobs:
 
   release-artifacts:
     name: Prepare release artifacts
-    needs: [linux, windows]
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [meta, linux, windows]
     runs-on: ubuntu-22.04
-    permissions:
-      contents: read
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -309,6 +463,9 @@ jobs:
           rm -f release-artifacts/SHA256SUMS.txt
 
       - name: Generate updater manifest
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+          TAG: ${{ needs.meta.outputs.tag }}
         run: |
           python3 - <<'PY'
           import datetime
@@ -317,8 +474,8 @@ jobs:
           import os
           import sys
 
-          tag = os.environ["GITHUB_REF_NAME"]
-          version = tag.lstrip("v")
+          version = os.environ["VERSION"]
+          tag = os.environ["TAG"] or f"v{version}"
           repo = os.environ["GITHUB_REPOSITORY"]
           base = f"https://github.com/{repo}/releases/download/{tag}"
 
@@ -370,15 +527,44 @@ jobs:
       - name: Upload release candidate
         uses: actions/upload-artifact@v4
         with:
-          name: filepilot-release-${{ github.ref_name }}
+          name: filepilot-release-${{ needs.meta.outputs.version }}
           path: release-artifacts/*
           if-no-files-found: error
           retention-days: 30
 
+  # Beta builds publish automatically so testing stays fast. They are marked as
+  # prereleases, so `releases/latest` (and the in-app updater) still points at
+  # the newest final release.
+  publish-beta:
+    name: Publish beta prerelease
+    needs: [meta, release-artifacts]
+    if: needs.meta.outputs.publish == 'true' && needs.meta.outputs.channel == 'beta'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: filepilot-release-${{ needs.meta.outputs.version }}
+          path: artifacts
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: FilePilot ${{ needs.meta.outputs.version }} (beta)
+          prerelease: true
+          make_latest: false
+          generate_release_notes: true
+          files: artifacts/**/*
+          fail_on_unmatched_files: true
+
+  # Final releases are the "end version" and require a human approval on the
+  # `release` environment before anything is published.
   publish-release:
-    name: Publish GitHub Release
-    needs: release-artifacts
-    if: startsWith(github.ref, 'refs/tags/v')
+    name: Publish final release
+    needs: [meta, release-artifacts]
+    if: needs.meta.outputs.publish == 'true' && needs.meta.outputs.channel == 'release'
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -386,10 +572,16 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: filepilot-release-${{ github.ref_name }}
+          name: filepilot-release-${{ needs.meta.outputs.version }}
           path: artifacts
+
       - uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/**/*
+          tag_name: ${{ needs.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: FilePilot ${{ needs.meta.outputs.version }}
+          prerelease: false
+          make_latest: true
           generate_release_notes: true
+          files: artifacts/**/*
           fail_on_unmatched_files: true
