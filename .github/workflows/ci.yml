@@ -589,12 +589,13 @@ jobs:
           set -euo pipefail
 
           published=false
-          draft_created=false
+          release_started=false
           cleanup() {
             status=$?
-            if [ "$status" -ne 0 ] && [ "$published" != "true" ] && [ "$draft_created" = "true" ]; then
+            if [ "$status" -ne 0 ] && [ "$published" != "true" ] && [ "$release_started" = "true" ]; then
               echo "::warning::Release failed before publishing; removing the draft and tag so a retry is safe."
               gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" >/dev/null 2>&1 || true
             fi
             exit "$status"
           }
@@ -609,13 +610,19 @@ jobs:
             exit 1
           fi
 
+          # GitHub only creates the tag ref when a draft release is published, so
+          # create it up front at the exact built commit. Otherwise the tag
+          # verification below and the draft cleanup both fail with a 404/422.
+          git tag "$TAG" "$SHA"
+          git push origin "refs/tags/$TAG"
+          release_started=true
+
           gh release create "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$SHA" \
             --title "FilePilot $VERSION" \
             --notes-file release-notes.md \
             --draft
-          draft_created=true
 
           gh release upload "$TAG" release-artifacts/* \
             --repo "$GITHUB_REPOSITORY"
