@@ -206,7 +206,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         path = settings.certs_dir / "ca.crt"
         if not path.is_file():
             raise HTTPException(404, "TLS is not enabled")
-        return FileResponse(path, media_type="application/x-x509-ca-cert", filename="filepilot-ca.crt")
+        return FileResponse(
+            path,
+            media_type="application/x-x509-ca-cert",
+            filename="filepilot-ca.crt",
+            headers={"Connection": "close"},
+        )
 
     @app.get("/trust", include_in_schema=False)
     def trust_page() -> HTMLResponse:
