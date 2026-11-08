@@ -69,7 +69,7 @@ python scripts/conventional_version.py notes --from-tag v1.1.0 --to-ref HEAD
    - `desktop/src-tauri/tauri.conf.json`
    - `desktop/src-tauri/Cargo.toml`
    - `desktop/src-tauri/Cargo.lock` when it is tracked
-6. If the version changed, it creates an automated commit as `github-actions[bot]`:
+6. If the version changed, it creates an automated commit under the repository owner identity:
 
    ```text
    chore(release): v1.2.0 [skip ci]

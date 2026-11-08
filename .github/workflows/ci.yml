@@ -61,8 +61,10 @@ jobs:
 
       - name: Configure git identity
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Use the repository owner identity. Never commit as a bot account:
+          # bot-authored commits show up as an extra repository contributor.
+          git config user.name "Riyadh Radwan"
+          git config user.email "rera1999.rera@gmail.com"
 
       - name: Resolve version and release intent
         id: resolve
