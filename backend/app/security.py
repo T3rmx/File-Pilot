@@ -244,6 +244,11 @@ DOWNLOAD_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "Content-Security-Policy": "default-src 'none'; sandbox",
     "Cache-Control": "private, no-store",
+    # A file download is a one-shot transfer. Some mobile browsers and download
+    # managers keep showing a finished download as incomplete (stuck at ~99%)
+    # until the server closes the HTTP connection. Do not leave the socket in
+    # keep-alive after the body: close it as soon as the last byte is sent.
+    "Connection": "close",
 }
 
 

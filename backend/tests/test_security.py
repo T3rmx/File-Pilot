@@ -94,6 +94,8 @@ def test_download_headers_force_attachment(client, headers):
     assert response.headers["content-disposition"].startswith("attachment")
     assert response.headers["x-content-type-options"] == "nosniff"
     assert "sandbox" in response.headers["content-security-policy"]
+    assert response.headers["content-length"] == str(len(response.content))
+    assert response.headers["connection"] == "close"
 
 
 def test_html_is_never_previewed_inline(client, headers):

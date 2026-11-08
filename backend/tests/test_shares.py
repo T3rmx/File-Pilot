@@ -80,6 +80,10 @@ def test_public_info_and_download(client, headers):
     assert download.status_code == 200
     assert download.content == b"shared content"
     assert download.headers["content-disposition"].startswith("attachment")
+    assert download.headers["content-length"] == str(len(download.content))
+    # Downloads close the connection so mobile browsers finalize them instead
+    # of waiting forever for the keep-alive socket to close.
+    assert download.headers["connection"] == "close"
 
 
 def test_unknown_token_is_404(client):
