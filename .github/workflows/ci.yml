@@ -115,8 +115,10 @@ jobs:
               needs_stamp="$needs_commit"
               echo "Verification run: calculated $version (release=$release, commits=$release_commit_count). Nothing will be published."
             elif [ "$REF_NAME" = "beta" ]; then
+              read_detection
               should_build=true
-              echo "Beta verification run: building test packages with VERSION $version. Nothing will be published."
+              needs_stamp="$needs_commit"
+              echo "Beta verification run: building test packages with VERSION $version (release=$release, commits=$release_commit_count). Nothing will be published."
             else
               echo "::error::dev does not run CI. Run checks locally; use beta for test builds or rel for releases."
               exit 1
@@ -175,8 +177,10 @@ jobs:
               fi
             fi
           elif [ "$REF_NAME" = "beta" ]; then
+            read_detection
             should_build=true
-            echo "Beta branch: building test packages with VERSION $version."
+            needs_stamp="$needs_commit"
+            echo "Beta branch: building test packages with VERSION $version (release=$release, commits=$release_commit_count). Nothing will be published."
           else
             echo "::error::Unsupported branch $REF_NAME. CI runs only on beta and rel."
             exit 1
