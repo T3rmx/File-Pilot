@@ -1,6 +1,6 @@
 [package]
 name = "filepilot"
-version = "1.0.1"
+version = "1.0.2"
 description = "FilePilot desktop shell"
 authors = ["FilePilot"]
 edition = "2021"

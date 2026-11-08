@@ -1,7 +1,7 @@
 {
   "name": "filepilot-desktop",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "FilePilot desktop shell",
   "scripts": {
     "tauri": "tauri"
